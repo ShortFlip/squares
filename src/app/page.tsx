@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, ArrowRight, Grid3x3, History, Trophy } from 'lucide-react';
@@ -10,7 +10,8 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { normalizeRoomCode, isValidRoomCode } from '@/lib/game/room-code';
 
-export default function HomePage() {
+// Separated into its own component because useSearchParams() requires a Suspense boundary
+function HomePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [createOpen, setCreateOpen] = useState(() => searchParams.get('create') === 'true');
@@ -131,5 +132,13 @@ export default function HomePage() {
 
       <CreateRoomDialog open={createOpen} onOpenChange={setCreateOpen} />
     </main>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <HomePageContent />
+    </Suspense>
   );
 }
