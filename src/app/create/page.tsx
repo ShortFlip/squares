@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { BoardEditor } from '@/components/board/BoardEditor';
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
@@ -16,7 +17,9 @@ export default function CreatePage() {
         <ChevronLeft className="w-4 h-4" />
         Back to home
       </Link>
-      <BoardEditor />
+      <Suspense fallback={<div className="text-muted-foreground text-sm">Loading editor…</div>}>
+        <BoardEditor />
+      </Suspense>
     </main>
   );
 }
