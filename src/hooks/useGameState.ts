@@ -1,0 +1,60 @@
+'use client';
+
+import { useMemo } from 'react';
+import { useGameStore } from '@/stores/gameStore';
+import { checkWin } from '@/lib/game/win-detection';
+
+/**
+ * Derives frequently-needed computed values from the raw game store.
+ * Memoized so components don't re-render unless the underlying data changes.
+ */
+export function useGameState() {
+  const {
+    callList, calledCount, myCard, myMarks,
+    boardSize, freeSpace, winPatterns,
+  } = useGameStore();
+
+  // Set of original item indices that have been called so far
+  const calledOriginalIndices = useMemo(
+    () => new Set(callList.slice(0, calledCount)),
+    [callList, calledCount],
+  );
+
+  // Set of grid positions the player has marked (for BingoBoard)
+  const marksSet = useMemo(() => new Set(myMarks), [myMarks]);
+
+  // Set of grid positions whose items have been called (highlights unmark squares)
+  const calledGridIndices = useMemo(() => {
+    const called = new Set<number>();
+    myCard.forEach((item, gridIndex) => {
+      if (item.isFreeSpace) {
+        called.add(gridIndex); // free space is always "callable"
+      } else if (item.originalIndex !== undefined && calledOriginalIndices.has(item.originalIndex)) {
+        called.add(gridIndex);
+      }
+    });
+    return called;
+  }, [myCard, calledOriginalIndices]);
+
+  // Any non-free-space square is markable — players self-serve as they achieve things
+  function canMark(gridIndex: number): boolean {
+    const item = myCard[gridIndex];
+    if (!item) return false;
+    if (item.isFreeSpace) return false; // free space is pre-marked, not user-markable
+    return true;
+  }
+
+  // Client-side win check — used to show the BINGO! button
+  const currentWin = useMemo(
+    () => checkWin(marksSet, boardSize, winPatterns, freeSpace),
+    [marksSet, boardSize, winPatterns, freeSpace],
+  );
+
+  return {
+    calledOriginalIndices,
+    calledGridIndices,
+    marksSet,
+    canMark,
+    currentWin,
+  };
+}

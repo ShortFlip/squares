@@ -1,0 +1,13 @@
+name = "squares"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# @opennextjs/cloudflare puts its output here
+pages_build_output_dir = ".open-next/assets"
+
+[vars]
+# Public env vars can be listed here for local wrangler dev.
+# For production, set these in the Cloudflare Pages dashboard under
+# Settings → Environment variables.
+# NEXT_PUBLIC_SUPABASE_URL = ""
+# NEXT_PUBLIC_SUPABASE_ANON_KEY = ""
