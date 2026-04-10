@@ -5,13 +5,13 @@ const config: OpenNextConfig = {
     override: {
       wrapper: "cloudflare-node",
       converter: "edge",
-      // Incremental cache disabled since we have no KV bindings — fine for this app
+      proxyExternalRequest: "fetch",
       incrementalCache: "dummy",
       tagCache: "dummy",
       queue: "dummy",
     },
   },
-
+  edgeExternals: ["node:crypto"],
   middleware: {
     external: true,
     override: {
