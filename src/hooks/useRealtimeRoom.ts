@@ -7,7 +7,7 @@ import { generateCard } from '@/lib/game/shuffle';
 import { useGameStore } from '@/stores/gameStore';
 import type { Player } from '@/types/player';
 import type { SquareItem, CardStyles } from '@/types/card';
-import type { WinPattern } from '@/types/game';
+import type { WinPattern, GameMode } from '@/types/game';
 
 export interface PresencePlayer {
   playerId: string;
@@ -26,6 +26,7 @@ interface GameStartedPayload {
   freeSpace: boolean;
   shuffleMode: 'full' | 'column';
   winPatterns: WinPattern[];
+  gameMode?: GameMode;
   cardStyles?: CardStyles;
 }
 
@@ -51,12 +52,22 @@ interface MarkUpdatedPayload {
  * Uses `self: true` in broadcast config so the host also receives the
  * game_started event they broadcast, allowing uniform state initialization.
  */
-export function useRealtimeRoom(roomCode: string, player: Player | null) {
+export function useRealtimeRoom(
+  roomCode: string,
+  player: Player | null,
+  // Fired when the host closes the room (room_closed broadcast). Kept in a ref
+  // so a new callback identity doesn't tear down and resubscribe the channel.
+  onRoomClosed?: () => void,
+) {
   const [presentPlayers, setPresentPlayers] = useState<PresencePlayer[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   // Live mark state for all players — updated via mark_updated broadcasts
   const [playerMarks, setPlayerMarks] = useState<Record<string, number[]>>({});
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const onRoomClosedRef = useRef(onRoomClosed);
+  useEffect(() => {
+    onRoomClosedRef.current = onRoomClosed;
+  }, [onRoomClosed]);
 
   const { initGame, setMyCard, setCalledCount, addWinner } = useGameStore();
 
@@ -122,6 +133,12 @@ export function useRealtimeRoom(roomCode: string, player: Player | null) {
 
       .on('broadcast', { event: 'mark_updated' }, ({ payload }: { payload: MarkUpdatedPayload }) => {
         setPlayerMarks((prev) => ({ ...prev, [payload.playerId]: payload.marks }));
+      })
+
+      // Host ended the game night — rooms.status is now 'finished' in the DB,
+      // so clients re-render the server component to reach the GameOver screen.
+      .on('broadcast', { event: 'room_closed' }, () => {
+        onRoomClosedRef.current?.();
       })
 
       .subscribe(async (status) => {

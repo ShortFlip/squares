@@ -11,7 +11,7 @@ import { checkWin } from '@/lib/game/win-detection';
 export function useGameState() {
   const {
     callList, calledCount, myCard, myMarks,
-    boardSize, freeSpace, winPatterns,
+    boardSize, freeSpace, winPatterns, gameMode,
   } = useGameStore();
 
   // Set of original item indices that have been called so far
@@ -36,11 +36,14 @@ export function useGameState() {
     return called;
   }, [myCard, calledOriginalIndices]);
 
-  // Any non-free-space square is markable — players self-serve as they achieve things
+  // Honor mode: any non-free-space square is markable — players self-serve.
+  // Traditional mode: only squares whose item the host has called.
+  // (Unmarking is covered too — a marked square was necessarily called.)
   function canMark(gridIndex: number): boolean {
     const item = myCard[gridIndex];
     if (!item) return false;
     if (item.isFreeSpace) return false; // free space is pre-marked, not user-markable
+    if (gameMode === 'traditional') return calledGridIndices.has(gridIndex);
     return true;
   }
 

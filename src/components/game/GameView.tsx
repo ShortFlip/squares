@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Volume2, VolumeX } from 'lucide-react';
 import { BingoBoard } from '@/components/board/BingoBoard';
 import { WinOverlay } from './WinOverlay';
+import { CallerPanel } from './CallerPanel';
+import { CalledItems } from './CalledItems';
 import { useGameStore } from '@/stores/gameStore';
 import { useGameState } from '@/hooks/useGameState';
 import { usePlayer } from '@/hooks/usePlayer';
@@ -21,6 +23,8 @@ interface GameViewProps {
   onMarkSquare: (marks: number[]) => void;
   onBingoClaim: () => Promise<void>;
   onNewRound: () => Promise<void>;
+  onEndGame: () => Promise<void>;
+  onCallNext: (callsMade: number) => Promise<void>;
 }
 
 export function GameView({
@@ -31,16 +35,19 @@ export function GameView({
   onMarkSquare,
   onBingoClaim,
   onNewRound,
+  onEndGame,
+  onCallNext,
 }: GameViewProps) {
   const { player } = usePlayer();
   const {
     gameId, myCard, myMarks, boardSize, freeSpace,
-    winners, hasClaimed, roundNumber, cardStyles,
+    winners, hasClaimed, roundNumber, cardStyles, gameMode,
   } = useGameStore();
 
-  const { marksSet, canMark, currentWin } = useGameState();
+  const { marksSet, canMark, currentWin, calledGridIndices } = useGameState();
 
   const isHost = currentPlayerId === room.host_id;
+  const isTraditional = gameMode === 'traditional';
   const hasWinners = winners.length > 0;
   const iAmWinner = winners.some((w) => w.playerId === currentPlayerId);
   const totalSquares = boardSize * boardSize - (freeSpace ? 1 : 0);
@@ -68,7 +75,7 @@ export function GameView({
   }, [currentWin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleMark(gridIndex: number) {
-    if (!canMark(gridIndex)) return; // only blocks free space
+    if (!canMark(gridIndex)) return; // blocks free space; in traditional mode, uncalled squares too
     useGameStore.getState().toggleMark(gridIndex);
     playMark();
     // Broadcast updated marks so the host overview stays live
@@ -137,7 +144,9 @@ export function GameView({
             variant="game"
             styles={cardStyles}
             markedIndices={marksSet}
-            calledIndices={marksSet} // no caller — highlight same as marked
+            // Traditional: called-but-unmarked squares glow so players can spot
+            // them. Honor: no caller, so "called" mirrors marked.
+            calledIndices={isTraditional ? calledGridIndices : marksSet}
             onMarkSquare={handleMark}
             className="max-w-lg w-full"
           />
@@ -147,9 +156,28 @@ export function GameView({
           )}
         </div>
 
-        {/* Player progress sidebar — visible to everyone */}
-        {presentPlayers.length > 0 && (
-          <div className="w-full lg:w-64 shrink-0">
+        {/* Sidebar — caller tools (traditional) + player progress */}
+        {(isTraditional || presentPlayers.length > 0) && (
+          <div className="w-full lg:w-64 shrink-0 space-y-4">
+
+            {/* Caller panel — host only, traditional mode only */}
+            {isTraditional && isHost && gameId && (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <CallerPanel gameId={gameId} onCallNext={onCallNext} />
+              </div>
+            )}
+
+            {/* Call history — everyone in traditional mode */}
+            {isTraditional && (
+              <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
+                  Called Items
+                </p>
+                <CalledItems />
+              </div>
+            )}
+
+            {presentPlayers.length > 0 && (
             <div className="rounded-xl border border-border bg-card p-4 space-y-3">
               <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
                 Players
@@ -204,13 +232,18 @@ export function GameView({
                 })}
               </ul>
             </div>
+            )}
           </div>
         )}
 
       </div>
 
       {hasWinners && (
-        <WinOverlay isHost={isHost} onNewRound={isHost ? onNewRound : undefined} />
+        <WinOverlay
+          isHost={isHost}
+          onNewRound={isHost ? onNewRound : undefined}
+          onEndGame={isHost ? onEndGame : undefined}
+        />
       )}
     </div>
   );

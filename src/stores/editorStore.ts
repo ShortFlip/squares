@@ -84,6 +84,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setSaving: (isSaving) => set({ isSaving }),
 
   bulkFill: (text) => {
+    const { freeSpace, boardSize } = get();
+    const total = boardSize * boardSize;
+    const centerIndex = Math.floor(total / 2);
+
     const parsed = text
       .split('\n')
       .map((l) => l.trim())
@@ -91,9 +95,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       .map((t) => ({ text: t }));
 
     const current = [...get().items];
-    parsed.forEach((item, i) => {
-      if (i < current.length) current[i] = item;
-    });
+    // When freeSpace is on, skip the center slot — it's always FREE and not
+    // user-editable. This matches the dialog description ("skipping the FREE
+    // space") and ensures N pasted items map 1:1 to the N visible non-FREE slots.
+    let parsedIdx = 0;
+    for (let i = 0; i < total && parsedIdx < parsed.length; i++) {
+      if (freeSpace && i === centerIndex) continue;
+      current[i] = parsed[parsedIdx++];
+    }
     set({ items: current });
   },
 

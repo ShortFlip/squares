@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { SquareItem, CardStyles } from '@/types/card';
-import type { WinPattern } from '@/types/game';
+import type { WinPattern, GameMode } from '@/types/game';
 
 export interface GameWinner {
   playerId: string;
@@ -20,6 +20,7 @@ interface GameState {
   freeSpace: boolean;
   shuffleMode: 'full' | 'column';
   winPatterns: WinPattern[];
+  gameMode: GameMode;
   cardStyles: CardStyles;
 
   // Player's card (generated from seed + playerId on game_started)
@@ -44,17 +45,19 @@ interface GameState {
     freeSpace: boolean;
     shuffleMode: 'full' | 'column';
     winPatterns: WinPattern[];
+    gameMode?: GameMode; // legacy game_started payloads omit it → 'honor'
     cardStyles?: CardStyles;
   }) => void;
   setMyCard: (card: SquareItem[]) => void;
   setCalledCount: (count: number) => void;
   toggleMark: (gridIndex: number) => void;
   addWinner: (winner: GameWinner) => void;
+  setMyMarks: (marks: number[]) => void;
   setHasClaimed: (claimed: boolean) => void;
   resetGame: () => void;
 }
 
-const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; setCalledCount: unknown; toggleMark: unknown; addWinner: unknown; setHasClaimed: unknown; resetGame: unknown }> = {
+const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; setCalledCount: unknown; toggleMark: unknown; addWinner: unknown; setMyMarks: unknown; setHasClaimed: unknown; resetGame: unknown }> = {
   gameId: null,
   seed: null,
   roundNumber: 0,
@@ -65,6 +68,7 @@ const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; se
   freeSpace: true,
   shuffleMode: 'full',
   winPatterns: ['row', 'column', 'diagonal'],
+  gameMode: 'honor' as GameMode,
   cardStyles: {},
   myCard: [],
   myMarks: [],
@@ -79,6 +83,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   initGame: (params) =>
     set({
       ...params,
+      gameMode: params.gameMode ?? 'honor',
       cardStyles: params.cardStyles ?? {},
       calledCount: 0,
       myCard: [],
@@ -104,6 +109,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       set({ winners: [...winners, winner] });
     }
   },
+
+  setMyMarks: (myMarks) => set({ myMarks }),
 
   setHasClaimed: (hasClaimed) => set({ hasClaimed }),
 

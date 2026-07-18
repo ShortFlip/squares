@@ -32,6 +32,7 @@ function seededRng(seed: string) {
 
 interface SquareItem {
   text?: string;
+  imageUrl?: string;
   originalIndex?: number;
   isFreeSpace?: boolean;
 }
@@ -61,24 +62,51 @@ function generateCard(
   let card: SquareItem[];
 
   if (shuffleMode === 'full') {
-    card = fisherYates(indexed, rng).slice(0, total);
+    // Mirror client-side logic exactly (see src/lib/game/shuffle.ts):
+    // filter by content rather than position so both new templates (empty center slot)
+    // and legacy templates (empty trailing slot) produce the same verified card.
+    const pool = indexed.filter((item) => item.text?.trim() || item.imageUrl);
+    card = fisherYates(pool, rng).slice(0, freeSpace ? total - 1 : total);
+
+    if (freeSpace) {
+      card = [
+        ...card.slice(0, centerIndex),
+        { text: 'FREE', isFreeSpace: true },
+        ...card.slice(centerIndex),
+      ];
+    }
   } else {
-    const groupSize = Math.ceil(indexed.length / boardSize);
-    const columns = Array.from({ length: boardSize }, (_, col) =>
-      fisherYates(indexed.slice(col * groupSize, (col + 1) * groupSize), rng),
+    // Need-based partition sizes — mirrors src/lib/game/shuffle.ts exactly.
+    const centerCol = centerIndex % boardSize;
+    const needs = Array.from({ length: boardSize }, (_, col) =>
+      boardSize - (freeSpace && col === centerCol ? 1 : 0),
     );
+    const totalNeed = needs.reduce((a, b) => a + b, 0);
+
+    const sizes = [...needs];
+    let extra = indexed.length - totalNeed;
+    for (let col = 0; extra > 0; col = (col + 1) % boardSize, extra--) sizes[col]++;
+
+    const columns: SquareItem[][] = [];
+    let offset = 0;
+    for (let col = 0; col < boardSize; col++) {
+      columns.push(fisherYates(indexed.slice(offset, offset + sizes[col]), rng));
+      offset += sizes[col];
+    }
+
     card = [];
+    const pointers = Array(boardSize).fill(0);
     for (let row = 0; row < boardSize; row++) {
       for (let col = 0; col < boardSize; col++) {
-        card.push(columns[col][row] ?? { text: '' });
+        if (freeSpace && row * boardSize + col === centerIndex) {
+          card.push({ text: 'FREE', isFreeSpace: true });
+        } else {
+          card.push(columns[col][pointers[col]++] ?? { text: '' });
+        }
       }
     }
-    card = card.slice(0, total);
   }
 
-  if (freeSpace) {
-    card[centerIndex] = { text: 'FREE', isFreeSpace: true };
-  }
   return card;
 }
 
@@ -185,7 +213,13 @@ Deno.serve(async (req) => {
     if (!template) return jsonResp({ error: 'Template not found' }, 404);
 
     // ── Regenerate this player's card server-side ─────────────────────────
-    const items = template.items as SquareItem[];
+    // Filter empty pool slots BEFORE generateCard, exactly like the client does
+    // (GameLobby/RoomClient). originalIndex must be tagged on the filtered pool —
+    // the call list indices refer to filtered positions, so tagging the raw
+    // template array would shift every index past an empty slot and reject
+    // legitimate bingos.
+    const items = (template.items as SquareItem[])
+      .filter((item) => item.text?.trim() || item.imageUrl);
     const card = generateCard(
       items,
       game.seed,

@@ -19,6 +19,21 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import type { CardTemplate } from '@/types/card';
+import type { GameMode } from '@/types/game';
+
+// Mode picker copy — kept next to the type so adding a mode forces updating both
+const GAME_MODES: { value: GameMode; label: string; description: string }[] = [
+  {
+    value: 'honor',
+    label: 'Honor System',
+    description: 'No caller — everyone marks squares themselves as things happen.',
+  },
+  {
+    value: 'traditional',
+    label: 'Traditional',
+    description: 'Host calls items one at a time; only called squares can be marked.',
+  },
+];
 
 interface CreateRoomDialogProps {
   open: boolean;
@@ -32,6 +47,7 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
   const [templates, setTemplates] = useState<CardTemplate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [roomName, setRoomName] = useState('');
+  const [gameMode, setGameMode] = useState<GameMode>('honor');
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
@@ -84,6 +100,7 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
           status: 'waiting',
           settings: {
             winPatterns: ['row', 'column', 'diagonal'],
+            gameMode,
             autoCall: false,
             callInterval: 15,
           },
@@ -124,6 +141,28 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
               onChange={(e) => setRoomName(e.target.value)}
               maxLength={60}
             />
+          </div>
+
+          {/* Game mode picker */}
+          <div className="space-y-1.5">
+            <Label>Game mode</Label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {GAME_MODES.map((mode) => (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => setGameMode(mode.value)}
+                  className={`text-left px-3 py-2.5 rounded-lg border transition-colors ${
+                    gameMode === mode.value
+                      ? 'border-primary bg-primary/10 text-foreground'
+                      : 'border-border bg-card hover:border-primary/40'
+                  }`}
+                >
+                  <p className="text-sm font-medium">{mode.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{mode.description}</p>
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Template picker */}

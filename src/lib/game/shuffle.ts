@@ -48,28 +48,62 @@ export function generateCard(
   let card: SquareItem[];
 
   if (shuffleMode === 'full') {
-    card = fisherYates(indexed, rng).slice(0, total);
+    // Filter empty slots from the pool before shuffling. This handles both:
+    // - New templates: center slot (index 12 for 5×5) is empty and intentionally never filled
+    // - Legacy templates (pre-April-10 fix): the empty slot ended up at the last index (e.g. 24)
+    //   rather than at centerIndex, so a position-based exclusion would silently eat a real item.
+    // Filtering by content is position-agnostic and correct in both cases.
+    const pool = indexed.filter((item) => item.text?.trim() || item.imageUrl);
+    card = fisherYates(pool, rng).slice(0, freeSpace ? total - 1 : total);
+
+    if (freeSpace) {
+      // card has (total-1) items — splice FREE into the center position
+      card = [
+        ...card.slice(0, centerIndex),
+        { text: 'FREE', isFreeSpace: true },
+        ...card.slice(centerIndex),
+      ];
+    }
   } else {
     // Column-locked: partition items into boardSize groups and shuffle within
     // each group. This keeps items in their "home" column across rounds —
     // good for themed boards (e.g. column 1 = movies, column 2 = sports).
-    const groupSize = Math.ceil(indexed.length / boardSize);
-    const columns = Array.from({ length: boardSize }, (_, col) => {
-      const partition = indexed.slice(col * groupSize, (col + 1) * groupSize);
-      return fisherYates(partition, rng);
-    });
+    //
+    // Partitions are sized by NEED, not a uniform ceil split: each column needs
+    // boardSize items, except the center column when freeSpace is on (FREE
+    // occupies one of its rows). A uniform split of an (N²-1)-item pool leaves
+    // the last column one short, which used to render a blank playable square.
+    const centerCol = centerIndex % boardSize;
+    const needs = Array.from({ length: boardSize }, (_, col) =>
+      boardSize - (freeSpace && col === centerCol ? 1 : 0),
+    );
+    const totalNeed = needs.reduce((a, b) => a + b, 0);
+
+    // Spread any surplus pool items round-robin so oversized pools still add
+    // round-to-round variety in every column.
+    const sizes = [...needs];
+    let extra = indexed.length - totalNeed;
+    for (let col = 0; extra > 0; col = (col + 1) % boardSize, extra--) sizes[col]++;
+
+    const columns: SquareItem[][] = [];
+    let offset = 0;
+    for (let col = 0; col < boardSize; col++) {
+      columns.push(fisherYates(indexed.slice(offset, offset + sizes[col]), rng));
+      offset += sizes[col];
+    }
 
     card = [];
+    const pointers = Array(boardSize).fill(0);
     for (let row = 0; row < boardSize; row++) {
       for (let col = 0; col < boardSize; col++) {
-        card.push(columns[col][row] ?? { text: '' });
+        if (freeSpace && row * boardSize + col === centerIndex) {
+          card.push({ text: 'FREE', isFreeSpace: true });
+        } else {
+          // Blank fallback only happens if the template genuinely has too few items
+          card.push(columns[col][pointers[col]++] ?? { text: '' });
+        }
       }
     }
-    card = card.slice(0, total);
-  }
-
-  if (freeSpace) {
-    card[centerIndex] = { text: 'FREE', isFreeSpace: true };
   }
 
   return card;

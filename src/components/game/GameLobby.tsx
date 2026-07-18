@@ -8,7 +8,7 @@ import { PlayerList } from './PlayerList';
 import { createClient } from '@/lib/supabase/client';
 import { generateCallList } from '@/lib/game/call-list';
 import { Button } from '@/components/ui/button';
-import type { Room, WinPattern } from '@/types/game';
+import type { Room, WinPattern, GameMode } from '@/types/game';
 import type { PresencePlayer } from '@/hooks/useRealtimeRoom';
 import type { CardStyles } from '@/types/card';
 
@@ -27,6 +27,7 @@ interface GameLobbyProps {
     freeSpace: boolean;
     shuffleMode: 'full' | 'column';
     winPatterns: WinPattern[];
+    gameMode: GameMode;
     cardStyles: CardStyles;
   }) => Promise<void>;
 }
@@ -60,11 +61,16 @@ export function GameLobby({
       if (templateError || !template) throw templateError ?? new Error('Template not found');
 
       const seed = crypto.randomUUID();
-      const items = template.items as { text?: string; imageUrl?: string; clue?: string }[];
+      // Filter out empty pool slots — handles both new templates (empty center slot)
+      // and legacy templates saved before the April-10 fix (empty trailing slot).
+      // generateCard uses the same content filter so card and call list stay in sync.
+      const items = (template.items as { text?: string; imageUrl?: string; clue?: string }[])
+        .filter((item) => item.text?.trim() || item.imageUrl);
       const callList = generateCallList(items.length, seed);
 
-      const settings = (room.settings as { winPatterns?: WinPattern[] } | null) ?? {};
+      const settings = (room.settings as { winPatterns?: WinPattern[]; gameMode?: GameMode } | null) ?? {};
       const winPatterns: WinPattern[] = settings.winPatterns ?? ['row', 'column', 'diagonal'];
+      const gameMode: GameMode = settings.gameMode ?? 'honor';
 
       // Create the game record in the DB
       const { data: game, error: gameError } = await supabase
@@ -82,7 +88,10 @@ export function GameLobby({
 
       if (gameError || !game) throw gameError ?? new Error('Failed to create game');
 
-      // Update room status to 'playing' — triggers router.refresh() on all clients via postgres_changes
+      // Update room status to 'playing'. Clients transition via the game_started
+      // broadcast below (there's no postgres_changes subscription — the tables
+      // aren't in the realtime publication); a player who misses the broadcast
+      // recovers on manual refresh through RoomClient's reconnect path.
       const { error: roomError } = await supabase.from('rooms').update({ status: 'playing' }).eq('id', room.id);
       if (roomError) throw roomError;
 
@@ -97,6 +106,7 @@ export function GameLobby({
         freeSpace: template.free_space,
         shuffleMode: template.shuffle_mode as 'full' | 'column',
         winPatterns,
+        gameMode,
         cardStyles: (template.styles as CardStyles) ?? {},
       });
     } catch (err) {

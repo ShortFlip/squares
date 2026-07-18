@@ -20,9 +20,10 @@ const PATTERN_LABELS: Record<WinPattern, string> = {
 interface WinOverlayProps {
   isHost: boolean;
   onNewRound?: () => void;
+  onEndGame?: () => void;
 }
 
-export function WinOverlay({ isHost, onNewRound }: WinOverlayProps) {
+export function WinOverlay({ isHost, onNewRound, onEndGame }: WinOverlayProps) {
   const { winners } = useGameStore();
   const winner = winners[0]; // show first winner
 
@@ -71,10 +72,19 @@ export function WinOverlay({ isHost, onNewRound }: WinOverlayProps) {
           </p>
         )}
 
-        {isHost && onNewRound && (
-          <Button size="lg" className="w-full" onClick={onNewRound}>
-            New Round
-          </Button>
+        {isHost && (
+          <div className="w-full flex flex-col gap-2">
+            {onNewRound && (
+              <Button size="lg" className="w-full" onClick={onNewRound}>
+                New Round
+              </Button>
+            )}
+            {onEndGame && (
+              <Button size="lg" variant="outline" className="w-full" onClick={onEndGame}>
+                End Game Night
+              </Button>
+            )}
+          </div>
         )}
         {!isHost && (
           <p className="text-sm text-muted-foreground">Waiting for host to start a new round…</p>
