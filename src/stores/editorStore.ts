@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { parseImport } from '@/lib/game/import';
 import type { SquareItem, CardStyles } from '@/types/card';
 
 interface EditorState {
@@ -6,6 +7,11 @@ interface EditorState {
   templateId: string | null; // null = new template
   name: string;
   boardSize: number;
+  /**
+   * The item pool — every item this card can draw from. NOT pinned to
+   * boardSize²: a pool larger than the board is the point (each round deals a
+   * different subset to every player). Never contains blank placeholders.
+   */
   items: SquareItem[];
   shuffleMode: 'full' | 'column';
   freeSpace: boolean;
@@ -20,7 +26,13 @@ interface EditorState {
   // Actions
   setName: (name: string) => void;
   setBoardSize: (size: number) => void;
+  /** Edit pool entry `index`; an index at the end of the pool appends. */
   setItem: (index: number, item: SquareItem) => void;
+  addItem: (text: string) => void;
+  removeItem: (index: number) => void;
+  clearItems: () => void;
+  /** Drop pool entries that carry neither text nor an image. */
+  pruneEmpty: () => void;
   setShuffleMode: (mode: 'full' | 'column') => void;
   setFreeSpace: (enabled: boolean) => void;
   setIsPublic: (isPublic: boolean) => void;
@@ -28,22 +40,40 @@ interface EditorState {
   setEditingIndex: (index: number | null) => void;
   setPreviewMode: (preview: boolean) => void;
   setSaving: (saving: boolean) => void;
-  // Parse newline-separated text and fill the grid from the top
-  bulkFill: (text: string) => void;
+  /** Append parsed items to the pool, skipping case-insensitive duplicates. */
+  bulkFill: (text: string) => { added: number; skipped: number };
+  /** Replace the pool wholesale (used when loading an existing template). */
+  loadItems: (items: SquareItem[]) => void;
   resetEditor: () => void;
 }
 
 const DEFAULT_SIZE = 5;
 
-function emptyItems(count: number): SquareItem[] {
-  return Array.from({ length: count }, () => ({ text: '' }));
+/** How many squares one card needs — the free space is not drawn from the pool. */
+export function neededFor(boardSize: number, freeSpace: boolean): number {
+  return boardSize * boardSize - (freeSpace ? 1 : 0);
+}
+
+/** Items beyond what a single card needs — these rotate in on later rounds. */
+export function surplusFor(itemCount: number, needed: number): number {
+  return Math.max(0, itemCount - needed);
+}
+
+/** Items still missing before this card can be saved. */
+export function shortByFor(itemCount: number, needed: number): number {
+  return Math.max(0, needed - itemCount);
+}
+
+/** An item counts toward the pool only if it would render something. */
+export function isRealItem(item: SquareItem): boolean {
+  return Boolean(item.text?.trim() || item.imageUrl);
 }
 
 const initial = {
   templateId: null,
   name: '',
   boardSize: DEFAULT_SIZE,
-  items: emptyItems(DEFAULT_SIZE * DEFAULT_SIZE),
+  items: [] as SquareItem[],
   shuffleMode: 'full' as const,
   freeSpace: true,
   isPublic: false,
@@ -58,25 +88,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setName: (name) => set({ name }),
 
-  setBoardSize: (boardSize) => {
-    const newTotal = boardSize * boardSize;
-    const current = get().items;
-    // Preserve existing content when resizing — trim or pad with empties
-    const items =
-      current.length >= newTotal
-        ? current.slice(0, newTotal)
-        : [...current, ...emptyItems(newTotal - current.length)];
-    set({ boardSize, items });
-  },
+  // Board size and free space no longer resize the pool — they only change how
+  // many of it a single card uses.
+  setBoardSize: (boardSize) => set({ boardSize }),
+  setFreeSpace: (freeSpace) => set({ freeSpace }),
 
   setItem: (index, item) => {
     const items = [...get().items];
+    if (index < 0 || index > items.length) return; // gap writes would leave holes
     items[index] = item;
     set({ items });
   },
 
+  addItem: (text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    set({ items: [...get().items, { text: trimmed }] });
+  },
+
+  removeItem: (index) =>
+    set({ items: get().items.filter((_, i) => i !== index) }),
+
+  clearItems: () => set({ items: [] }),
+
+  pruneEmpty: () => {
+    const items = get().items;
+    const kept = items.filter(isRealItem);
+    if (kept.length !== items.length) set({ items: kept });
+  },
+
   setShuffleMode: (shuffleMode) => set({ shuffleMode }),
-  setFreeSpace: (freeSpace) => set({ freeSpace }),
   setIsPublic: (isPublic) => set({ isPublic }),
   setStyles: (styles) => set({ styles }),
   setEditingIndex: (editingIndex) => set({ editingIndex }),
@@ -84,28 +125,29 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setSaving: (isSaving) => set({ isSaving }),
 
   bulkFill: (text) => {
-    const { freeSpace, boardSize } = get();
-    const total = boardSize * boardSize;
-    const centerIndex = Math.floor(total / 2);
+    const parsed = parseImport(text);
+    const current = get().items;
+    const seen = new Set(
+      current.map((i) => (i.text ?? '').trim().toLowerCase()).filter(Boolean),
+    );
 
-    const parsed = text
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .map((t) => ({ text: t }));
-
-    const current = [...get().items];
-    // When freeSpace is on, skip the center slot — it's always FREE and not
-    // user-editable. This matches the dialog description ("skipping the FREE
-    // space") and ensures N pasted items map 1:1 to the N visible non-FREE slots.
-    let parsedIdx = 0;
-    for (let i = 0; i < total && parsedIdx < parsed.length; i++) {
-      if (freeSpace && i === centerIndex) continue;
-      current[i] = parsed[parsedIdx++];
+    const additions: SquareItem[] = [];
+    let skipped = 0;
+    for (const t of parsed) {
+      const key = t.toLowerCase();
+      if (seen.has(key)) {
+        skipped++;
+        continue;
+      }
+      seen.add(key);
+      additions.push({ text: t });
     }
-    set({ items: current });
+
+    set({ items: [...current, ...additions] });
+    return { added: additions.length, skipped };
   },
 
-  resetEditor: () =>
-    set({ ...initial, items: emptyItems(DEFAULT_SIZE * DEFAULT_SIZE) }),
+  loadItems: (items) => set({ items: items.filter(isRealItem) }),
+
+  resetEditor: () => set({ ...initial, items: [] }),
 }));

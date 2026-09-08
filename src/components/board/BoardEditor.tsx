@@ -3,11 +3,17 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { Eye, EyeOff, Save, ClipboardList } from 'lucide-react';
+import { Eye, EyeOff, Save, ClipboardList, X, Plus } from 'lucide-react';
 import { BingoBoard } from './BingoBoard';
 import { BoardPreview } from './BoardPreview';
 import { CardStylePicker } from './CardStylePicker';
-import { useEditorStore } from '@/stores/editorStore';
+import {
+  useEditorStore,
+  neededFor,
+  surplusFor,
+  shortByFor,
+} from '@/stores/editorStore';
+import { parseImport } from '@/lib/game/import';
 import { usePlayer } from '@/hooks/usePlayer';
 import { createClient } from '@/lib/supabase/client';
 import type { Json } from '@/lib/supabase/types';
@@ -25,11 +31,6 @@ import {
 
 const BOARD_SIZES = [3, 4, 5, 6] as const;
 
-/** Minimum non-empty squares required to save (rough validation) */
-function countFilled(items: { text?: string }[]): number {
-  return items.filter((i) => i.text && i.text.trim().length > 0).length;
-}
-
 export function BoardEditor() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -41,11 +42,13 @@ export function BoardEditor() {
     editingIndex, isPreviewMode, isSaving,
     setName, setBoardSize, setItem, setShuffleMode, setFreeSpace,
     setStyles, setEditingIndex, setPreviewMode, setSaving, bulkFill,
+    removeItem, addItem, pruneEmpty, loadItems,
   } = useEditorStore();
 
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkText, setBulkText] = useState('');
   const [previewSeed, setPreviewSeed] = useState('preview-1');
+  const [newItemText, setNewItemText] = useState('');
 
   // If ?id= is set, load the existing template into the editor store
   useEffect(() => {
@@ -63,16 +66,40 @@ export function BoardEditor() {
         setShuffleMode(data.shuffle_mode as 'full' | 'column');
         setFreeSpace(data.free_space);
         setStyles((data.styles as import('@/types/card').CardStyles) ?? {});
-        // Populate each item slot
-        const loaded = data.items as { text?: string }[];
-        loaded.forEach((item, i) => setItem(i, { text: item.text ?? '' }));
+        // Legacy templates were saved as exactly N² entries with a blank at the
+        // free-space index. loadItems strips those blanks so an old 5×5 card
+        // arrives as a clean 24-item pool. No migration needed.
+        loadItems(data.items as import('@/types/card').SquareItem[]);
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId]);
 
-  // Grid slots = N*N minus 1 for free space (center not editable)
-  const requiredSlots = boardSize * boardSize - (freeSpace ? 1 : 0);
-  const filledCount = countFilled(items);
+  // How many squares one card needs, and how the pool measures up.
+  const needed = neededFor(boardSize, freeSpace);
+  const surplus = surplusFor(items.length, needed);
+  const shortBy = shortByFor(items.length, needed);
+  const isShort = shortBy > 0;
+
+  // The grid is a window onto the first `needed` pool entries. BingoBoard maps
+  // grid position → pool index for us (skipping the FREE center); these two
+  // helpers let us go back the other way when a click lands past the pool.
+  const centerIndex = Math.floor((boardSize * boardSize) / 2);
+  const gridIndexOfPool = (poolIndex: number) =>
+    freeSpace && poolIndex >= centerIndex ? poolIndex + 1 : poolIndex;
+
+  /**
+   * Clicking an empty cell beyond the pool appends rather than leaving a hole,
+   * so the edit cursor jumps to the first blank cell instead of the one clicked.
+   */
+  function handleEditSquare(gridIndex: number) {
+    const poolIndex =
+      freeSpace && gridIndex > centerIndex ? gridIndex - 1 : gridIndex;
+    setEditingIndex(
+      poolIndex > items.length ? gridIndexOfPool(items.length) : gridIndex,
+    );
+  }
+
+  const parsedBulk = parseImport(bulkText);
 
   async function handleSave() {
     if (!player) {
@@ -83,8 +110,8 @@ export function BoardEditor() {
       toast.error('Give your card a name first.');
       return;
     }
-    if (filledCount < requiredSlots) {
-      toast.error(`Fill in all ${requiredSlots} squares before saving. (${filledCount}/${requiredSlots} done)`);
+    if (isShort) {
+      toast.error(`${needed} needed, ${items.length} so far.`);
       return;
     }
 
@@ -118,10 +145,20 @@ export function BoardEditor() {
   }
 
   function handleBulkApply() {
-    bulkFill(bulkText);
+    const { added, skipped } = bulkFill(bulkText);
     setBulkText('');
     setBulkDialogOpen(false);
-    toast.success('Items imported!');
+    toast.success(
+      skipped > 0
+        ? `Added ${added} items, skipped ${skipped} duplicates`
+        : `Added ${added} items`,
+    );
+  }
+
+  function handleAddItem() {
+    if (!newItemText.trim()) return;
+    addItem(newItemText);
+    setNewItemText('');
   }
 
   return (
@@ -130,7 +167,24 @@ export function BoardEditor() {
       {/* ── Header bar ── */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="font-display text-2xl font-bold">Card Creator</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* The one count line: how big the pool is against what a card needs. */}
+          {isShort ? (
+            <p className="text-sm text-destructive">
+              <span className="font-mono">{needed}</span> needed,{' '}
+              <span className="font-mono">{items.length}</span> so far
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono">{items.length}</span> items,{' '}
+              <span className="font-mono">{needed}</span> per card
+              {surplus > 0 && (
+                <span className="text-success">
+                  {' '}— <span className="font-mono">{surplus}</span> rotate in each round
+                </span>
+              )}
+            </p>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -142,7 +196,7 @@ export function BoardEditor() {
               <><Eye className="w-4 h-4 mr-1.5" /> Preview</>
             )}
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving}>
+          <Button size="sm" onClick={handleSave} disabled={isSaving || isShort}>
             <Save className="w-4 h-4 mr-1.5" />
             {isSaving ? 'Saving…' : 'Save Card'}
           </Button>
@@ -266,34 +320,74 @@ export function BoardEditor() {
               variant="editor"
               styles={styles}
               editingIndex={editingIndex}
-              onEditSquare={(i) => setEditingIndex(i)}
+              onEditSquare={handleEditSquare}
               onChangeSquare={(itemIdx, item) => setItem(itemIdx, item)}
-              onBlurSquare={() => setEditingIndex(null)}
+              onBlurSquare={() => {
+                setEditingIndex(null);
+                // A cell left blank never becomes a pool entry.
+                pruneEmpty();
+              }}
               className="max-w-lg"
             />
+          )}
+
+          {/* Items past what one card needs — they rotate in on later rounds. */}
+          {!isPreviewMode && surplus > 0 && (
+            <div className="max-w-lg mt-4 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                In the pool for other rounds
+              </p>
+              <ul className="flex flex-wrap gap-1.5">
+                {items.slice(needed).map((item, i) => (
+                  <li
+                    key={`${needed + i}-${item.text}`}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-card pl-2 pr-1 py-1 text-xs"
+                  >
+                    <span className="max-w-40 truncate">{item.text}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeItem(needed + i)}
+                      aria-label={`Remove ${item.text}`}
+                      className="rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <X className="w-3 h-3" strokeWidth={1.75} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Quick single-item add — always available, pool or not. */}
+          {!isPreviewMode && (
+            <div className="max-w-lg mt-3 flex items-center gap-2">
+              <Input
+                value={newItemText}
+                onChange={(e) => setNewItemText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddItem();
+                  }
+                }}
+                placeholder="Add an item…"
+                className="h-8 max-w-56 text-sm"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddItem}
+                disabled={!newItemText.trim()}
+              >
+                <Plus className="w-4 h-4 mr-1.5" strokeWidth={1.75} />
+                Add item
+              </Button>
+            </div>
           )}
         </div>
 
         {/* Sidebar — fill progress + bulk import */}
         <div className="w-full lg:w-56 shrink-0 space-y-4">
-          <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-            <p className="text-sm font-medium">Squares filled</p>
-            <p className="font-display text-3xl font-bold text-primary">
-              {filledCount}
-              <span className="text-muted-foreground text-lg font-normal">
-                /{requiredSlots}
-              </span>
-            </p>
-            {filledCount < requiredSlots && (
-              <p className="text-xs text-muted-foreground">
-                {requiredSlots - filledCount} more to go
-              </p>
-            )}
-            {filledCount >= requiredSlots && (
-              <p className="text-xs text-success font-medium">Ready to save ✓</p>
-            )}
-          </div>
-
           <Button
             variant="outline"
             className="w-full"
@@ -304,7 +398,7 @@ export function BoardEditor() {
           </Button>
 
           <p className="text-xs text-muted-foreground leading-relaxed">
-            Click any square to edit. Press <kbd className="px-1 py-0.5 rounded bg-muted text-xs">Enter</kbd> or click away to confirm.
+            Click any square to edit. Press <kbd className="px-1 py-0.5 rounded bg-muted text-xs">Enter</kbd> or click away to confirm. The grid shows the first <span className="font-mono">{needed}</span> items in the pool.
           </p>
         </div>
       </div>
@@ -315,12 +409,12 @@ export function BoardEditor() {
           <DialogHeader>
             <DialogTitle>Bulk import</DialogTitle>
             <DialogDescription>
-              Paste one item per line. Items fill the grid from the top-left, skipping the FREE space.
+              Items are added to the card&apos;s pool. Anything already in the pool is skipped.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <Textarea
-              placeholder={'Action hero\nCatchphrase\nExplosion\n…'}
+              placeholder="One per line, or comma-separated"
               value={bulkText}
               onChange={(e) => setBulkText(e.target.value)}
               rows={10}
@@ -331,8 +425,8 @@ export function BoardEditor() {
               <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleBulkApply} disabled={!bulkText.trim()}>
-                Fill {bulkText.trim().split('\n').filter(Boolean).length} items
+              <Button onClick={handleBulkApply} disabled={parsedBulk.length === 0}>
+                Add <span className="font-mono mx-1">{parsedBulk.length}</span> items
               </Button>
             </div>
           </div>
