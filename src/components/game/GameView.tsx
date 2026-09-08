@@ -19,7 +19,6 @@ interface GameViewProps {
   room: Room;
   currentPlayerId: string;
   presentPlayers: PresencePlayer[];
-  playerMarks: Record<string, number[]>;
   onMarkSquare: (marks: number[]) => void;
   onBingoClaim: () => Promise<void>;
   onNewRound: () => Promise<void>;
@@ -31,7 +30,6 @@ export function GameView({
   room,
   currentPlayerId,
   presentPlayers,
-  playerMarks,
   onMarkSquare,
   onBingoClaim,
   onNewRound,
@@ -41,7 +39,7 @@ export function GameView({
   const { player } = usePlayer();
   const {
     gameId, myCard, myMarks, boardSize, freeSpace,
-    winners, hasClaimed, roundNumber, cardStyles, gameMode,
+    winners, hasClaimed, roundNumber, cardStyles, gameMode, others,
   } = useGameStore();
 
   const { marksSet, canMark, currentWin, calledGridIndices } = useGameState();
@@ -187,9 +185,11 @@ export function GameView({
               </p>
               <ul className="space-y-3">
                 {presentPlayers.map((p) => {
+                  // Other players' marks are DB-backed now (loadGamePlayers)
+                  // and topped up by mark_updated broadcasts.
                   const marks = p.playerId === currentPlayerId
                     ? myMarks
-                    : (playerMarks[p.playerId] ?? []);
+                    : (others[p.playerId]?.marks ?? []);
                   const isWinner = winners.some((w) => w.playerId === p.playerId);
                   const best = bestLineCompletion(marks, boardSize);
 

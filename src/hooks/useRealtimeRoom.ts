@@ -5,6 +5,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { generateCard } from '@/lib/game/shuffle';
+import { loadGamePlayers } from '@/lib/game/game-players';
 import { useGameStore } from '@/stores/gameStore';
 import type { Player } from '@/types/player';
 import type { SquareItem, CardStyles } from '@/types/card';
@@ -16,6 +17,13 @@ export interface PresencePlayer {
   avatarUrl: string | null;
   joinedAt: string;
 }
+
+/**
+ * Connection truth for the room channel. `connecting` is the first attempt,
+ * `reconnecting` is every attempt after a drop — the UI distinguishes them so a
+ * first load can show a skeleton while a mid-game drop shows the amber bar.
+ */
+export type ConnectionState = 'connecting' | 'live' | 'reconnecting';
 
 interface GameStartedPayload {
   gameId: string;
@@ -46,9 +54,13 @@ interface MarkUpdatedPayload {
   marks: number[];
 }
 
+// Resubscribe backoff after a dropped channel: 1 s, 2 s, 4 s, then 8 s forever.
+// Short enough that a blip is invisible, capped so a long outage neither hammers
+// the server nor leaves the player waiting a minute once the network returns.
+const BACKOFF_MS = [1000, 2000, 4000, 8000];
+
 /**
  * Unified Realtime hook — handles both lobby presence and in-game events.
- * Replaces the simpler useRoomPresence for all room states.
  *
  * Uses `self: true` in broadcast config so the host also receives the
  * game_started event they broadcast, allowing uniform state initialization.
@@ -64,9 +76,7 @@ export function useRealtimeRoom(
   onRoomClosed?: () => void,
 ) {
   const [presentPlayers, setPresentPlayers] = useState<PresencePlayer[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  // Live mark state for all players — updated via mark_updated broadcasts
-  const [playerMarks, setPlayerMarks] = useState<Record<string, number[]>>({});
+  const [connection, setConnection] = useState<ConnectionState>('connecting');
   const channelRef = useRef<RealtimeChannel | null>(null);
   const onRoomClosedRef = useRef(onRoomClosed);
   // Last rooms.status we acted on, so a duplicate UPDATE (or one that merely
@@ -80,127 +90,188 @@ export function useRealtimeRoom(
 
   useEffect(() => {
     if (!player) return;
+    const self = player;
 
     const supabase = createClient();
-    const channel = supabase.channel(`room:${roomCode}`, {
-      config: {
-        // self: true so the broadcaster also receives their own game events
-        broadcast: { self: true },
-        presence: { key: player.id },
-      },
-    });
+    // Guards every async continuation: after unmount nothing may resubscribe,
+    // set state, or leave a timer running.
+    let cancelled = false;
+    let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    channel
-      // ── Presence (lobby player list) ──────────────────────────────────────
-      .on('presence', { event: 'sync' }, () => {
-        const state = channel.presenceState<PresencePlayer>();
-        setPresentPlayers(Object.values(state).flat());
-      })
+    function subscribe(): RealtimeChannel {
+      const channel = supabase.channel(`room:${roomCode}`, {
+        config: {
+          // self: true so the broadcaster also receives their own game events
+          broadcast: { self: true },
+          presence: { key: self.id },
+        },
+      });
 
-      // ── Game events ───────────────────────────────────────────────────────
-      .on('broadcast', { event: 'game_started' }, async ({ payload }: { payload: GameStartedPayload }) => {
-        initGame(payload);
-        // Clear other players' marks so the sidebar doesn't show stale data
-        setPlayerMarks({});
-        // Generate this player's card from the shared seed + their unique ID
-        const card = generateCard(
-          payload.templateItems,
-          payload.seed,
-          player.id,
-          payload.boardSize,
-          payload.shuffleMode,
-          payload.freeSpace,
-        );
-        setMyCard(card);
+      channel
+        // ── Presence (lobby player list) ────────────────────────────────────
+        .on('presence', { event: 'sync' }, () => {
+          const state = channel.presenceState<PresencePlayer>();
+          const present = Object.values(state).flat();
+          setPresentPlayers(present);
 
-        // Persist this player's game_players record so the Edge Function
-        // can verify wins and the DB has a record of who played.
-        // Fire-and-forget — don't block the game start on this write.
-        supabase.from('game_players').upsert(
-          {
-            game_id: payload.gameId,
-            player_id: player.id,
-            card_data: card as unknown as import('@/lib/supabase/types').Json,
-            marks: [],
-            won: false,
-          },
-          { onConflict: 'game_id,player_id' },
-        ).then(({ error }) => {
+          // Anyone here who has no entry in the store yet gets an unsynced
+          // placeholder, so the rail can show them as "syncing" rather than
+          // pretending they are on 0/25 (DESIGN.md, Partial state).
+          const store = useGameStore.getState();
+          if (!store.gameId) return;
+          const missing = present.filter(
+            (p) => p.playerId !== self.id && !store.others[p.playerId],
+          );
+          if (missing.length === 0) return;
+          store.setOthers(
+            missing.map((p) => ({
+              playerId: p.playerId,
+              displayName: p.displayName,
+              avatarUrl: p.avatarUrl,
+              card: [],
+              marks: [],
+              won: false,
+              finishPosition: null,
+              synced: false,
+            })),
+          );
+        })
+
+        // ── Game events ─────────────────────────────────────────────────────
+        .on('broadcast', { event: 'game_started' }, async ({ payload }: { payload: GameStartedPayload }) => {
+          initGame(payload);
+          // Generate this player's card from the shared seed + their unique ID
+          const card = generateCard(
+            payload.templateItems,
+            payload.seed,
+            self.id,
+            payload.boardSize,
+            payload.shuffleMode,
+            payload.freeSpace,
+          );
+          setMyCard(card);
+
+          // Persist this player's game_players record so wins can be verified
+          // and the DB has a record of who played.
+          const { error } = await supabase.from('game_players').upsert(
+            {
+              game_id: payload.gameId,
+              player_id: self.id,
+              card_data: card as unknown as import('@/lib/supabase/types').Json,
+              marks: [],
+              won: false,
+            },
+            { onConflict: 'game_id,player_id' },
+          );
           if (error) {
             console.error('Failed to create game_players record:', error);
             // Generic copy — never surface raw DB error text to players.
             toast.error('Your card could not be saved. Stats may be missing.');
           }
-        });
-      })
+          if (cancelled) return;
+          // Read everyone else's rows only after our own row exists, so the
+          // other clients' matching fetches can see us too.
+          await loadGamePlayers(supabase, payload.gameId, self.id);
+        })
 
-      .on('broadcast', { event: 'item_called' }, ({ payload }: { payload: ItemCalledPayload }) => {
-        setCalledCount(payload.callsMade);
-      })
+        .on('broadcast', { event: 'item_called' }, ({ payload }: { payload: ItemCalledPayload }) => {
+          setCalledCount(payload.callsMade);
+        })
 
-      .on('broadcast', { event: 'bingo_confirmed' }, ({ payload }: { payload: BingoConfirmedPayload }) => {
-        addWinner(payload);
-      })
+        .on('broadcast', { event: 'bingo_confirmed' }, ({ payload }: { payload: BingoConfirmedPayload }) => {
+          addWinner(payload);
+        })
 
-      .on('broadcast', { event: 'mark_updated' }, ({ payload }: { payload: MarkUpdatedPayload }) => {
-        setPlayerMarks((prev) => ({ ...prev, [payload.playerId]: payload.marks }));
-      })
+        .on('broadcast', { event: 'mark_updated' }, ({ payload }: { payload: MarkUpdatedPayload }) => {
+          // Our own marks already live in myMarks; echoing them into `others`
+          // would double-render us in the rail.
+          if (payload.playerId === self.id) return;
+          useGameStore.getState().setOtherMarks(payload.playerId, payload.marks);
+        })
 
-      // Host ended the game night — rooms.status is now 'finished' in the DB,
-      // so clients re-render the server component to reach the GameOver screen.
-      .on('broadcast', { event: 'room_closed' }, () => {
-        onRoomClosedRef.current?.();
-      })
-
-      // ── postgres_changes fallback ─────────────────────────────────────────
-      // Broadcasts are fire-and-forget: a tab that was asleep or briefly
-      // disconnected never sees them. These DB subscriptions replay the two
-      // pieces of state that actually matter (room lifecycle, call progress)
-      // so such a client self-heals instead of sitting on a stale screen.
-      // Both handlers are idempotent and dedupe against current state, so a
-      // client that DID get the broadcast does nothing extra here.
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
-        ({ new: row }: { new: { status?: string } }) => {
-          const status = row?.status;
-          if (!status || status === lastRoomStatusRef.current) return;
-          lastRoomStatusRef.current = status;
-          // Same handler as room_closed: re-render the server component so the
-          // right screen (lobby / board / game over) is chosen from the new status.
+        // Host ended the game night — rooms.status is now 'finished' in the DB,
+        // so clients re-render the server component to reach the GameOver screen.
+        .on('broadcast', { event: 'room_closed' }, () => {
           onRoomClosedRef.current?.();
-        },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'games', filter: `room_id=eq.${roomId}` },
-        ({ new: row }: { new: { id?: string; calls_made?: number } }) => {
-          const store = useGameStore.getState();
-          // Ignore rows for a different round than the one we're rendering.
-          if (!row?.id || row.id !== store.gameId) return;
-          if (typeof row.calls_made !== 'number') return;
-          // Never rewind: the broadcast may already have moved us further along.
-          if (row.calls_made <= store.calledCount) return;
-          store.setCalledCount(row.calls_made);
-        },
-      )
+        })
 
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          setIsConnected(true);
-          await channel.track({
-            playerId: player.id,
-            displayName: player.display_name,
-            avatarUrl: player.avatar_url ?? null,
-            joinedAt: new Date().toISOString(),
-          });
-        }
-      });
+        // ── postgres_changes fallback ───────────────────────────────────────
+        // Broadcasts are fire-and-forget: a tab that was asleep or briefly
+        // disconnected never sees them. These DB subscriptions replay the two
+        // pieces of state that actually matter (room lifecycle, call progress)
+        // so such a client self-heals instead of sitting on a stale screen.
+        // Both handlers are idempotent and dedupe against current state, so a
+        // client that DID get the broadcast does nothing extra here.
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
+          ({ new: row }: { new: { status?: string } }) => {
+            const status = row?.status;
+            if (!status || status === lastRoomStatusRef.current) return;
+            lastRoomStatusRef.current = status;
+            // Same handler as room_closed: re-render the server component so the
+            // right screen (lobby / board / game over) is chosen from the new status.
+            onRoomClosedRef.current?.();
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'games', filter: `room_id=eq.${roomId}` },
+          ({ new: row }: { new: { id?: string; calls_made?: number } }) => {
+            const store = useGameStore.getState();
+            // Ignore rows for a different round than the one we're rendering.
+            if (!row?.id || row.id !== store.gameId) return;
+            if (typeof row.calls_made !== 'number') return;
+            // Never rewind: the broadcast may already have moved us further along.
+            if (row.calls_made <= store.calledCount) return;
+            store.setCalledCount(row.calls_made);
+          },
+        )
 
-    channelRef.current = channel;
+        .subscribe(async (status) => {
+          if (cancelled) return;
+
+          if (status === 'SUBSCRIBED') {
+            attempt = 0; // a good connection clears the backoff ladder
+            setConnection('live');
+            await channel.track({
+              playerId: self.id,
+              displayName: self.display_name,
+              avatarUrl: self.avatar_url ?? null,
+              joinedAt: new Date().toISOString(),
+            });
+            // Anything we missed while the socket was down is in the DB.
+            const { gameId } = useGameStore.getState();
+            if (gameId && !cancelled) await loadGamePlayers(supabase, gameId, self.id);
+            return;
+          }
+
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            setConnection('reconnecting');
+            // Drop the dead channel outright: Supabase does not revive an
+            // errored channel on its own, and holding it leaks the socket.
+            supabase.removeChannel(channel);
+            channelRef.current = null;
+            const delay = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];
+            attempt++;
+            retryTimer = setTimeout(() => {
+              if (cancelled) return;
+              channelRef.current = subscribe();
+            }, delay);
+          }
+        });
+
+      return channel;
+    }
+
+    channelRef.current = subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      channelRef.current = null;
     };
     // Only re-subscribe on identity changes; the store setters and the
     // onRoomClosed callback are read through refs/getState on purpose.
@@ -211,5 +282,11 @@ export function useRealtimeRoom(
     await channelRef.current?.send({ type: 'broadcast', event, payload });
   }
 
-  return { presentPlayers, isConnected, playerMarks, broadcast };
+  return {
+    presentPlayers,
+    connection,
+    // Kept until Phase 2 rebuilds the surfaces that read it (lobby Live pill).
+    isConnected: connection === 'live',
+    broadcast,
+  };
 }

@@ -2,6 +2,25 @@ import { create } from 'zustand';
 import type { SquareItem, CardStyles } from '@/types/card';
 import type { WinPattern, GameMode } from '@/types/game';
 
+/**
+ * Another player in this round, as far as this client knows.
+ *
+ * `synced: false` means we know they are here (presence) but have not yet read
+ * their `game_players` row — their card and marks are unknown, which the UI
+ * must show as "syncing" rather than as a real 0/25 score (DESIGN.md: "Them
+ * showing 0/25 after a refresh is not [tolerable]").
+ */
+export interface OtherPlayer {
+  playerId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  card: SquareItem[];
+  marks: number[];
+  won: boolean;
+  finishPosition: number | null;
+  synced: boolean;
+}
+
 export interface GameWinner {
   playerId: string;
   displayName: string;
@@ -34,6 +53,10 @@ interface GameState {
 
   winners: GameWinner[];
 
+  // Every other player in the round, keyed by player ID. Fed by loadGamePlayers
+  // (DB truth) and by mark_updated broadcasts (live deltas).
+  others: Record<string, OtherPlayer>;
+
   // Actions
   initGame: (params: {
     gameId: string;
@@ -54,10 +77,12 @@ interface GameState {
   addWinner: (winner: GameWinner) => void;
   setMyMarks: (marks: number[]) => void;
   setHasClaimed: (claimed: boolean) => void;
+  setOthers: (list: OtherPlayer[]) => void;
+  setOtherMarks: (playerId: string, marks: number[]) => void;
   resetGame: () => void;
 }
 
-const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; setCalledCount: unknown; toggleMark: unknown; addWinner: unknown; setMyMarks: unknown; setHasClaimed: unknown; resetGame: unknown }> = {
+const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; setCalledCount: unknown; toggleMark: unknown; addWinner: unknown; setMyMarks: unknown; setHasClaimed: unknown; setOthers: unknown; setOtherMarks: unknown; resetGame: unknown }> = {
   gameId: null,
   seed: null,
   roundNumber: 0,
@@ -75,6 +100,7 @@ const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; se
   hasClaimed: false,
   gameStartedAt: null,
   winners: [],
+  others: {},
 };
 
 export const useGameStore = create<GameState>((set, get) => ({
@@ -91,6 +117,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       hasClaimed: false,
       gameStartedAt: new Date().toISOString(),
       winners: [],
+      // A new round means everyone's old board is meaningless; loadGamePlayers
+      // repopulates this once the fresh game_players rows exist.
+      others: {},
     }),
 
   setMyCard: (myCard) => set({ myCard }),
@@ -113,6 +142,50 @@ export const useGameStore = create<GameState>((set, get) => ({
   setMyMarks: (myMarks) => set({ myMarks }),
 
   setHasClaimed: (hasClaimed) => set({ hasClaimed }),
+
+  /**
+   * Replace the DB-backed view of other players.
+   *
+   * Unsynced entries (created by presence, or by a mark_updated broadcast that
+   * beat the fetch) are preserved when the incoming list doesn't mention them —
+   * otherwise a fetch that races a join would erase someone from the rail.
+   */
+  setOthers: (list) => {
+    const { others } = get();
+    const next: Record<string, OtherPlayer> = {};
+    for (const [id, entry] of Object.entries(others)) {
+      if (!entry.synced) next[id] = entry;
+    }
+    for (const entry of list) next[entry.playerId] = entry;
+    set({ others: next });
+  },
+
+  /**
+   * Apply a live mark_updated broadcast. Creates a placeholder entry if the
+   * broadcast arrives before the fetch, so no mark is ever dropped; the card
+   * fills in when loadGamePlayers lands.
+   */
+  setOtherMarks: (playerId, marks) => {
+    const { others } = get();
+    const existing = others[playerId];
+    set({
+      others: {
+        ...others,
+        [playerId]: existing
+          ? { ...existing, marks }
+          : {
+              playerId,
+              displayName: 'Player',
+              avatarUrl: null,
+              card: [],
+              marks,
+              won: false,
+              finishPosition: null,
+              synced: true,
+            },
+      },
+    });
+  },
 
   resetGame: () => set({ ...initial }),
 }));

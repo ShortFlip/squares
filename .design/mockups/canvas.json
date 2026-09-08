@@ -1,0 +1,40 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "title": "Scoreboard",
+      "x": 0,
+      "y": 0,
+      "w": 1280,
+      "h": 800
+    },
+    {
+      "file": "Arena.dc.html",
+      "title": "Arena",
+      "x": 1400,
+      "y": 0,
+      "w": 1280,
+      "h": 800
+    },
+    {
+      "file": "BingoMoment.dc.html",
+      "title": "Bingo Moment",
+      "x": 0,
+      "y": 960,
+      "w": 1280,
+      "h": 800
+    }
+  ],
+  "annotations": [
+    {
+      "id": "pick",
+      "x": 0,
+      "y": -140,
+      "w": 420,
+      "text": "Scoreboard (recommended): your board stays the hero, everyone else is a live miniature in the rail.\nArena: every board equal size, yours outlined. Fair comparison, drawn honestly."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}
