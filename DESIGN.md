@@ -166,13 +166,13 @@ moment when someone hits bingo.
 
 ### References that fit (Mobbin, 2026-09-07)
 
-- Canva Live: the giant join code with "visit X and enter code" as the whole
+- [Canva Live](https://mobbin.com/screens/cfe8b2c6-9b1a-4cf7-bb9b-ce4917a10d2e): the giant join code with "visit X and enter code" as the whole
   screen. That is the lobby.
-- Suno Radio: glass panels over a vivid blurred backdrop, live activity in a
+- [Suno Radio](https://mobbin.com/screens/72ebb179-c187-41e5-9caf-0eb6f7567c9e): glass panels over a vivid blurred backdrop, live activity in a
   side column. That is the rail.
-- Neon Snake (Google AI Studio): glowing marks on a dark grid with a
+- [Neon Snake](https://mobbin.com/screens/2584fa5d-dd69-4543-bbb7-ea1efb656eb1) (Google AI Studio): glowing marks on a dark grid with a
   leaderboard overlay. That is the board.
-- Codecademy course-complete: full-bleed dark celebration with confetti and
+- [Codecademy course-complete](https://mobbin.com/screens/c827145c-7d03-4771-908c-6a6c4be2abc7): full-bleed dark celebration with confetti and
   one gold object. That is the bingo banner.
 
 ### Still to specify
