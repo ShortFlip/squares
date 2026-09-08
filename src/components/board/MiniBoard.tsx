@@ -13,7 +13,7 @@ interface MiniBoardProps {
   size?: number;
   /** Grid indices of the line to outline — the player's best line. */
   line?: number[];
-  /** Reserved for Phase 3's gold winner treatment. No-op today. */
+  /** A confirmed winner: the line is drawn in gold rather than emerald. */
   winner?: boolean;
   className?: string;
 }
@@ -52,7 +52,6 @@ export function MiniBoard({
         backgroundColor: 'rgba(0,0,0,0.28)',
         border: '1px solid rgba(255,255,255,0.07)',
       }}
-      // Phase 3 reads this; today it is only a hook for the winner treatment.
       data-winner={winner ? 'true' : undefined}
       aria-hidden
     >
@@ -76,7 +75,9 @@ export function MiniBoard({
               className={cn(
                 'rounded-[2px]',
                 isFree ? 'mt-free' : marked.has(gridIndex) ? 'mt-on' : 'mt',
-                lineCells?.has(gridIndex) && 'mt-line',
+                // The winning line is gold; a line someone is merely close to
+                // stays emerald. Same shape, different verdict.
+                lineCells?.has(gridIndex) && (winner ? 'mt-line-win' : 'mt-line'),
               )}
             />
           );

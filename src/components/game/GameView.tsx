@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as LinkIcon, Volume2, VolumeX } from 'lucide-react';
 import { BingoBoard } from '@/components/board/BingoBoard';
-import { WinOverlay } from './WinOverlay';
+import { WinBanner } from './WinBanner';
 import { CallerPanel } from './CallerPanel';
 import { CalledItems } from './CalledItems';
 import { RailCard } from './RailCard';
@@ -14,7 +14,8 @@ import { useDevState } from '@/lib/dev-state';
 import { bestLine, bestLineLabel } from '@/lib/game/win-detection';
 import { copyLink } from '@/lib/utils/copy-link';
 import { playerColor, getInitials } from '@/lib/utils/player-color';
-import { playMark, playRoundStart, isMuted, toggleMute } from '@/lib/sound';
+import { playMark, playRoundStart, playBingo, isMuted, toggleMute } from '@/lib/sound';
+import { fireWinConfetti, fireSecondPlaceConfetti } from '@/lib/win-confetti';
 import { cn } from '@/lib/utils';
 import type { Room } from '@/types/game';
 import type { PresencePlayer } from '@/hooks/useRealtimeRoom';
@@ -23,6 +24,19 @@ import type { PresencePlayer } from '@/hooks/useRealtimeRoom';
 const HEADER_H = 56;
 /** The hero grid is a fixed 608px at every board size — the board never shrinks. */
 const GRID_W = 608;
+/** While the win banner is up the grid gives back 88px so the banner can fit
+ *  without the board leaving the window. Rows fall out of aspect-square. */
+const GRID_W_WON = 520;
+
+/** Fallback line names, for when the winner's marks have not reached us. */
+const PATTERN_NAMES: Record<string, string> = {
+  row: 'Row',
+  column: 'Column',
+  diagonal: 'Diagonal',
+  four_corners: 'Four corners',
+  blackout: 'Blackout',
+  custom: 'Custom pattern',
+};
 
 interface GameViewProps {
   room: Room;
@@ -50,7 +64,7 @@ export function GameView({
   const { player } = usePlayer();
   const {
     gameId, myCard, myMarks, boardSize, freeSpace,
-    winners, hasClaimed, roundNumber, cardStyles, gameMode, others,
+    winners: storeWinners, hasClaimed, roundNumber, cardStyles, gameMode, others,
   } = useGameStore();
 
   const { marksSet, canMark, currentWin, calledGridIndices } = useGameState();
@@ -58,6 +72,7 @@ export function GameView({
 
   const isHost = currentPlayerId === room.host_id;
   const isTraditional = gameMode === 'traditional';
+  const winners = dev?.winners ?? storeWinners;
   const hasWinners = winners.length > 0;
   const iAmWinner = winners.some((w) => w.playerId === currentPlayerId);
 
@@ -81,6 +96,29 @@ export function GameView({
       prevGameIdRef.current = gameId;
     }
   }, [gameId]);
+
+  // ── The win sequence ────────────────────────────────────────────────────
+  // Driven by `winners.length` rather than by the claim, so it runs identically
+  // on every client — the winner's own tab included — and exactly once per
+  // winner. `bingo_confirmed` is broadcast with `self: true`, so the claimant
+  // receives their own event like everyone else.
+  const announcedRef = useRef(0);
+  useEffect(() => {
+    if (winners.length <= announcedRef.current) {
+      // A new round empties the list; the next win must announce again.
+      announcedRef.current = winners.length;
+      return;
+    }
+    const isFirst = announcedRef.current === 0;
+    announcedRef.current = winners.length;
+
+    playBingo();
+    // Both bursts pass `disableForReducedMotion`, so the "no confetti" branch
+    // lives in one place rather than being re-decided here. The banner's own
+    // slide is switched off by the reduced-motion block in globals.css.
+    if (isFirst) fireWinConfetti();
+    else fireSecondPlaceConfetti();
+  }, [winners.length]);
 
   // Auto-claim the moment a winning pattern is detected — no button needed
   useEffect(() => {
@@ -141,6 +179,40 @@ export function GameView({
   }, [others, presentPlayers, currentPlayerId]);
 
   const rail = dev?.others ?? livePlayers;
+
+  // Winners keyed by id so the rail can hand each card its own placing.
+  const winnerById = useMemo(
+    () => new Map(winners.map((w, i) => [w.playerId, { winner: w, position: i + 1 }])),
+    [winners],
+  );
+  const myPlacing = winnerById.get(currentPlayerId)?.position ?? null;
+
+  /**
+   * The banner says which line the first winner completed, not merely which
+   * pattern they claimed: `Column 2` beats `Column`. That needs their marks,
+   * which we have for anyone in the rail (and for ourselves). When the marks
+   * have not landed yet, the claimed pattern is the honest fallback.
+   */
+  const patternLabel = useMemo(() => {
+    const first = winners[0];
+    if (!first) return '';
+    const isMe = first.playerId === currentPlayerId;
+    const winnerMarks = isMe
+      ? marks
+      : rail.find((o) => o.playerId === first.playerId)?.marks;
+    if (winnerMarks && winnerMarks.length > 0) {
+      const line = bestLine(new Set(winnerMarks), size, free);
+      if (line && line.remaining === 0) {
+        return line.kind === 'diagonal' ? 'Diagonal'
+          : `${line.kind === 'row' ? 'Row' : 'Column'} ${line.index + 1}`;
+      }
+    }
+    return PATTERN_NAMES[first.pattern] ?? 'Bingo';
+  }, [winners, currentPlayerId, marks, rail, size, free]);
+
+  // While the banner is up everything else gives ground: the grid, the panel,
+  // the rail gap and the miniatures.
+  const gridW = hasWinners ? GRID_W_WON : GRID_W;
 
   function handleMark(gridIndex: number) {
     if (!canMark(gridIndex)) return; // blocks free space; in traditional mode, uncalled squares too
@@ -235,8 +307,26 @@ export function GameView({
         </div>
       )}
 
+      {/* The win moment: a band, never a wall. The board below stays live so
+          second place is still up for grabs. */}
+      {hasWinners && (
+        <WinBanner
+          winners={winners}
+          patternLabel={patternLabel}
+          roundNumber={roundNumber}
+          isHost={isHost}
+          onNewRound={() => { void onNewRound(); }}
+          onEndGame={() => { void onEndGame(); }}
+        />
+      )}
+
       {/* ── Body ───────────────────────────────────────────────────────── */}
-      <div className="flex-1 min-h-0 flex gap-5 px-[22px] py-5">
+      <div
+        className={cn(
+          'flex-1 min-h-0 flex gap-5 px-[22px] transition-[padding] duration-300 ease-out',
+          hasWinners ? 'pt-[14px] pb-[18px]' : 'py-5',
+        )}
+      >
 
         {/* Hero: my board, the primary verb, the biggest thing on screen.
             The panel hugs the fixed grid (grid + 20px padding either side)
@@ -245,8 +335,12 @@ export function GameView({
         <div className="flex-1 min-w-0 flex justify-center">
         <section
           className="glass w-fit flex flex-col items-center gap-[14px] px-5 py-[18px] rounded-2xl overflow-hidden"
+          style={hasWinners ? { minHeight: 606 } : undefined}
         >
-          <div className="flex items-center justify-between gap-3" style={{ width: GRID_W }}>
+          <div
+            className="flex items-center justify-between gap-3 transition-[width] duration-300 ease-out"
+            style={{ width: gridW }}
+          >
             <div className="flex items-center gap-2.5 min-w-0">
               <span
                 className="w-[30px] h-[30px] rounded-full flex items-center justify-center font-display text-[14px] font-bold text-white shrink-0"
@@ -255,9 +349,20 @@ export function GameView({
                 {getInitials(displayName).slice(0, 1)}
               </span>
               <span className="font-display text-[20px] font-bold truncate">{displayName}</span>
-              <span className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] bg-primary/15 text-primary border border-primary/30 shrink-0">
-                YOUR BOARD
-              </span>
+              {/* My own placing replaces the "this is you" pill — once I have
+                  won, which board is mine is no longer the news. */}
+              {myPlacing ? (
+                <span
+                  className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] shrink-0 text-background"
+                  style={{ backgroundColor: 'var(--gold)' }}
+                >
+                  {myPlacing === 2 ? '2ND' : '1ST'}
+                </span>
+              ) : (
+                <span className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] bg-primary/15 text-primary border border-primary/30 shrink-0">
+                  YOUR BOARD
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-[14px] shrink-0">
@@ -277,7 +382,13 @@ export function GameView({
             </div>
           </div>
 
-          <div style={{ width: GRID_W }}>
+          <div
+            // Keyed on gameId so a new round remounts the grid and the flip
+            // plays; the width transition covers the banner arriving/leaving.
+            key={gameId ?? 'no-game'}
+            className="call-flip transition-[width] duration-300 ease-out"
+            style={{ width: gridW }}
+          >
             <BingoBoard
               items={card}
               boardSize={size}
@@ -291,14 +402,23 @@ export function GameView({
               laneIndices={laneIndices}
               onMarkSquare={handleMark}
               gapClass="gap-2"
-              squareClassName={cn('rounded-[6px] font-medium', size >= 6 ? 'text-[11px]' : 'text-[12px]')}
+              squareClassName={cn(
+                'rounded-[6px] font-medium',
+                hasWinners || size >= 6 ? 'text-[11px]' : 'text-[12px]',
+              )}
             />
           </div>
         </section>
         </div>
 
         {/* Rail: everyone else, always on screen, never asking for a click. */}
-        <aside className="w-[300px] shrink-0 flex flex-col gap-3 overflow-y-auto pr-1.5 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent]">
+        <aside
+          className={cn(
+            'w-[300px] shrink-0 flex flex-col overflow-y-auto pr-1.5',
+            '[scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent]',
+            hasWinners ? 'gap-[10px]' : 'gap-3',
+          )}
+        >
 
           {/* Caller tools ride above the players in traditional mode. */}
           {isTraditional && isHost && gameId && (
@@ -316,14 +436,18 @@ export function GameView({
             </div>
           )}
 
-          <div className="flex items-baseline justify-between px-0.5">
-            <p className="font-display text-[13px] font-bold uppercase tracking-[0.14em]">
-              Everyone Else
-            </p>
-            <span className="text-[12px] font-medium text-muted-foreground">
-              {rail.length} playing
-            </span>
-          </div>
+          {/* The banner is already saying the loud thing; the rail label would
+              only be competing with it for the same two seconds. */}
+          {!hasWinners && (
+            <div className="flex items-baseline justify-between px-0.5">
+              <p className="font-display text-[13px] font-bold uppercase tracking-[0.14em]">
+                Everyone Else
+              </p>
+              <span className="text-[12px] font-medium text-muted-foreground">
+                {rail.length} playing
+              </span>
+            </div>
+          )}
 
           {rail.length === 0 ? (
             <p className="text-[12px] text-muted-foreground px-0.5">
@@ -341,19 +465,15 @@ export function GameView({
                 boardSize={size}
                 freeSpace={free}
                 synced={other.synced}
+                winner={winnerById.has(other.playerId)}
+                finishPosition={winnerById.get(other.playerId)?.position ?? null}
+                winPattern={winnerById.get(other.playerId)?.winner.pattern}
+                miniSize={hasWinners ? 90 : undefined}
               />
             ))
           )}
         </aside>
       </div>
-
-      {hasWinners && (
-        <WinOverlay
-          isHost={isHost}
-          onNewRound={isHost ? onNewRound : undefined}
-          onEndGame={isHost ? onEndGame : undefined}
-        />
-      )}
     </div>
   );
 }
