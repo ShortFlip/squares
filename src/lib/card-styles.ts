@@ -109,8 +109,3 @@ export const CARD_PRESETS: CardStylePreset[] = [
     },
   },
 ];
-
-/** Look up a preset by id (falls back to default) */
-export function getPreset(id: string): CardStylePreset {
-  return CARD_PRESETS.find((p) => p.id === id) ?? CARD_PRESETS[0];
-}

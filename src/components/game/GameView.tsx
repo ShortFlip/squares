@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as LinkIcon, Volume2, VolumeX } from 'lucide-react';
 import { BingoBoard } from '@/components/board/BingoBoard';
 import { WinBanner } from './WinBanner';
+import { HostControls } from './HostControls';
 import { CallerPanel } from './CallerPanel';
 import { CalledItems } from './CalledItems';
 import { RailCard } from './RailCard';
@@ -264,6 +265,19 @@ export function GameView({
         </div>
 
         <div className="flex items-center gap-4">
+          {/* A round nobody wins used to be a dead end: New Round and End Night
+              lived only inside the win banner. The host keeps them here while
+              the round is still open, and the banner takes over once it shows,
+              so the pair is never on screen twice. */}
+          {isHost && !hasWinners && (
+            <div className="flex items-center gap-2">
+              <HostControls
+                onNewRound={() => { void onNewRound(); }}
+                onEndGame={() => { void onEndGame(); }}
+              />
+            </div>
+          )}
+
           <span className="font-mono text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Round {roundNumber}
           </span>

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { Plus, ArrowRight, Grid3x3, History, Trophy, LogIn } from 'lucide-react';
 import { CreateRoomDialog } from '@/components/game/CreateRoomDialog';
 import { TemplateList } from '@/components/game/TemplateList';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { normalizeRoomCode, isValidRoomCode } from '@/lib/game/room-code';
 import { createClient } from '@/lib/supabase/client';

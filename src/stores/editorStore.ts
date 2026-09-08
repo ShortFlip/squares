@@ -65,7 +65,7 @@ export function shortByFor(itemCount: number, needed: number): number {
 }
 
 /** An item counts toward the pool only if it would render something. */
-export function isRealItem(item: SquareItem): boolean {
+function isRealItem(item: SquareItem): boolean {
   return Boolean(item.text?.trim() || item.imageUrl);
 }
 

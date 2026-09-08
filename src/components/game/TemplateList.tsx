@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
@@ -11,7 +10,6 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import type { CardTemplate } from '@/types/card';
 
 export function TemplateList() {
-  const router = useRouter();
   const { player } = usePlayer();
   const [templates, setTemplates] = useState<CardTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
