@@ -2,114 +2,211 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, ArrowLeft, Trophy, Clock } from 'lucide-react';
+import { ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { usePlayer } from '@/hooks/usePlayer';
 import { BingoBoard } from '@/components/board/BingoBoard';
-import { formatTime, formatPattern } from '@/lib/achievements';
+import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
+import { formatPattern } from '@/lib/achievements';
 import { cn } from '@/lib/utils';
 import type { SquareItem, CardStyles } from '@/types/card';
 
-interface HistoryEntry {
-  id: string;
+/** One player's card in one round. */
+interface RoundPlayer {
+  rowId: string;
+  playerId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  marks: number;
+  total: number;
   won: boolean;
-  finish_position: number | null;
-  bingo_time_ms: number | null;
-  marks: number[];
-  card_data: SquareItem[];
-  game: {
-    id: string;
-    win_pattern: string | null;
-    round_number: number;
-    started_at: string;
-  };
-  template: {
-    name: string;
-    board_size: number;
-    styles: CardStyles;
-    free_space: boolean;
+  finishPosition: number | null;
+  /** Only kept for my own row — the snapshot below the round. */
+  card: SquareItem[] | null;
+  markIndices: number[];
+}
+
+interface Round {
+  gameId: string;
+  roundNumber: number;
+  status: string;
+  winPattern: string | null;
+  startedAt: string;
+  players: RoundPlayer[];
+}
+
+/** A night is a room: every round played in it, in order. */
+interface Night {
+  roomId: string;
+  title: string;
+  templateName: string | null;
+  boardSize: number;
+  styles: CardStyles;
+  date: string;
+  rounds: Round[];
+  /** Everyone who played any round of this night. */
+  roster: { playerId: string; displayName: string; avatarUrl: string | null }[];
+  winners: string[];
+}
+
+// The shape PostgREST hands back for the embedded game -> room -> template chain.
+interface GameEmbed {
+  id: string;
+  round_number: number;
+  status: string;
+  win_pattern: string | null;
+  started_at: string;
+  room_id: string;
+  rooms: {
+    name: string | null;
+    join_code: string;
+    card_templates: {
+      name: string;
+      board_size: number;
+      styles: unknown;
+      free_space: boolean;
+    } | null;
   } | null;
-  roomName: string | null;
 }
 
 export default function HistoryPage() {
   const { player, isLoading: playerLoading } = usePlayer();
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [nights, setNights] = useState<Night[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!player) return;
+    const myId = player.id;
 
-    const supabase = createClient();
-    supabase
-      .from('game_players')
-      .select(`
-        id, won, finish_position, bingo_time_ms, marks, card_data,
-        games!game_players_game_id_fkey (
-          id, win_pattern, round_number, started_at,
-          rooms!games_room_id_fkey (
-            name,
-            card_templates!rooms_template_id_fkey (
-              name, board_size, styles, free_space
+    async function load() {
+      const supabase = createClient();
+
+      // 1. Which rooms have I played in? A room is a night.
+      const { data: mine, error: mineError } = await supabase
+        .from('game_players')
+        .select('games!game_players_game_id_fkey (room_id)')
+        .eq('player_id', myId);
+
+      if (mineError) { console.error(mineError); setIsLoading(false); return; }
+
+      const roomIds = Array.from(new Set(
+        (mine ?? [])
+          .map((row) => (row.games as { room_id: string } | null)?.room_id)
+          .filter((id): id is string => !!id),
+      ));
+
+      if (roomIds.length === 0) { setNights([]); setIsLoading(false); return; }
+
+      // 2. Every row from every round of those rooms — mine and everyone
+      //    else's — in one go. `!inner` is what makes the room filter apply to
+      //    the parent row instead of merely nulling the embed.
+      const { data: rows, error } = await supabase
+        .from('game_players')
+        .select(`
+          id, player_id, marks, card_data, won, finish_position,
+          games!inner (
+            id, round_number, status, win_pattern, started_at, room_id,
+            rooms!games_room_id_fkey (
+              name, join_code,
+              card_templates!rooms_template_id_fkey (
+                name, board_size, styles, free_space
+              )
             )
-          )
-        )
-      `)
-      .eq('player_id', player.id)
-      .then(({ data, error }) => {
-        if (error) { console.error(error); setIsLoading(false); return; }
+          ),
+          players!game_players_player_id_fkey ( id, display_name, avatar_url )
+        `)
+        .in('games.room_id', roomIds);
 
-        const mapped: HistoryEntry[] = (data ?? [])
-          .map((row) => {
-            const game = row.games as {
-              id: string;
-              win_pattern: string | null;
-              round_number: number;
-              started_at: string;
-              rooms: {
-                name: string | null;
-                card_templates: {
-                  name: string;
-                  board_size: number;
-                  styles: unknown;
-                  free_space: boolean;
-                } | null;
-              } | null;
-            } | null;
+      if (error) { console.error(error); setIsLoading(false); return; }
 
-            return {
-              id: row.id,
-              won: row.won,
-              finish_position: row.finish_position,
-              bingo_time_ms: row.bingo_time_ms,
-              marks: (row.marks as number[]) ?? [],
-              card_data: (row.card_data as SquareItem[]) ?? [],
-              game: {
-                id: game?.id ?? '',
-                win_pattern: game?.win_pattern ?? null,
-                round_number: game?.round_number ?? 1,
-                started_at: game?.started_at ?? '',
-              },
-              template: game?.rooms?.card_templates
-                ? {
-                    name: game.rooms.card_templates.name,
-                    board_size: game.rooms.card_templates.board_size,
-                    styles: (game.rooms.card_templates.styles as CardStyles) ?? {},
-                    free_space: game.rooms.card_templates.free_space,
-                  }
-                : null,
-              roomName: game?.rooms?.name ?? null,
-            };
-          })
-          // Most recent first — sort by started_at descending
-          .sort((a, b) =>
-            new Date(b.game.started_at).getTime() - new Date(a.game.started_at).getTime()
-          );
+      const byRoom = new Map<string, Night>();
+      const roundsByGame = new Map<string, Round>();
 
-        setEntries(mapped);
-        setIsLoading(false);
+      (rows ?? []).forEach((row) => {
+        const game = row.games as unknown as GameEmbed | null;
+        const p = row.players as unknown as
+          { id: string; display_name: string; avatar_url: string | null } | null;
+        if (!game || !p) return;
+
+        const template = game.rooms?.card_templates ?? null;
+        const card = (row.card_data as SquareItem[]) ?? [];
+        const markIndices = (row.marks as number[]) ?? [];
+
+        let night = byRoom.get(game.room_id);
+        if (!night) {
+          night = {
+            roomId: game.room_id,
+            title: game.rooms?.name || game.rooms?.join_code || 'Game night',
+            templateName: template?.name ?? null,
+            boardSize: template?.board_size ?? 5,
+            styles: (template?.styles as CardStyles) ?? ({} as CardStyles),
+            date: game.started_at,
+            rounds: [],
+            roster: [],
+            winners: [],
+          };
+          byRoom.set(game.room_id, night);
+        }
+
+        // A night is dated by its first round, not by whichever row arrived first.
+        if (game.started_at && game.started_at < night.date) night.date = game.started_at;
+
+        if (!night.roster.some((r) => r.playerId === p.id)) {
+          night.roster.push({ playerId: p.id, displayName: p.display_name, avatarUrl: p.avatar_url });
+        }
+        if (row.won && !night.winners.includes(p.display_name)) {
+          night.winners.push(p.display_name);
+        }
+
+        let round = roundsByGame.get(game.id);
+        if (!round) {
+          round = {
+            gameId: game.id,
+            roundNumber: game.round_number,
+            status: game.status,
+            winPattern: game.win_pattern,
+            startedAt: game.started_at,
+            players: [],
+          };
+          roundsByGame.set(game.id, round);
+          night.rounds.push(round);
+        }
+
+        round.players.push({
+          rowId: row.id,
+          playerId: p.id,
+          displayName: p.display_name,
+          avatarUrl: p.avatar_url,
+          marks: markIndices.length,
+          total: card.length,
+          won: row.won,
+          finishPosition: row.finish_position,
+          card: p.id === myId ? card : null,
+          markIndices,
+        });
       });
+
+      const list = [...byRoom.values()];
+      list.forEach((night) => {
+        night.rounds.sort((a, b) => a.roundNumber - b.roundNumber);
+        // Winners first, then everyone else alphabetically — the eye should go
+        // to the result, not to whatever order the query returned.
+        night.rounds.forEach((r) =>
+          r.players.sort((a, b) => {
+            if (a.won !== b.won) return a.won ? -1 : 1;
+            if (a.won && b.won) return (a.finishPosition ?? 9) - (b.finishPosition ?? 9);
+            return a.displayName.localeCompare(b.displayName);
+          }),
+        );
+      });
+      list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      setNights(list);
+      setIsLoading(false);
+    }
+
+    load();
   }, [player?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (playerLoading || isLoading) {
@@ -132,101 +229,170 @@ export default function HistoryPage() {
             href="/"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.75} />
             Home
           </Link>
           <h1 className="font-display text-3xl font-black">Game History</h1>
           <p className="text-muted-foreground text-sm">
-            {entries.length > 0
-              ? `${entries.length} games played · ${entries.filter((e) => e.won).length} wins`
-              : 'No games yet — join a room to start playing'}
+            Every night you have played, newest first.
           </p>
         </div>
 
-        {/* Game list */}
-        {entries.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border p-12 text-center">
-            <p className="text-muted-foreground text-sm">No games played yet.</p>
+        {nights.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-12 text-center space-y-1">
+            <p className="font-display font-bold">No nights yet</p>
+            <p className="text-muted-foreground text-sm">
+              Your game nights show up here after the first one.
+            </p>
           </div>
         ) : (
           <ul className="space-y-3">
-            {entries.map((entry) => {
-              const isExpanded = expandedId === entry.id;
-              const date = entry.game.started_at
-                ? new Date(entry.game.started_at)
-                : null;
-
-              return (
-                <li
-                  key={entry.id}
-                  className={cn(
-                    'rounded-xl border bg-card overflow-hidden transition-colors',
-                    entry.won ? 'border-accent/40' : 'border-border',
-                  )}
-                >
-                  {/* Summary row */}
-                  <button
-                    type="button"
-                    onClick={() => setExpandedId(isExpanded ? null : entry.id)}
-                    className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
-                  >
-                    {/* Win/loss indicator */}
-                    <div className={cn(
-                      'w-8 h-8 rounded-full flex items-center justify-center shrink-0',
-                      entry.won ? 'bg-accent/20 text-accent' : 'bg-muted text-muted-foreground',
-                    )}>
-                      {entry.won ? <Trophy className="w-4 h-4" /> : <span className="text-xs font-bold">—</span>}
-                    </div>
-
-                    {/* Game info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">
-                        {entry.template?.name ?? 'Unknown card'}
-                        {entry.roomName && (
-                          <span className="text-muted-foreground font-normal"> · {entry.roomName}</span>
-                        )}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Round {entry.game.round_number}
-                        {date && ` · ${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                      </p>
-                    </div>
-
-                    {/* Result badges */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      {entry.won && (
-                        <>
-                          {entry.game.win_pattern && (
-                            <span className="px-2 py-0.5 rounded bg-accent/20 text-accent text-xs font-medium">
-                              {formatPattern(entry.game.win_pattern)}
-                            </span>
-                          )}
-                          {entry.bingo_time_ms !== null && (
-                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                              <Clock className="w-3 h-3" />
-                              {formatTime(entry.bingo_time_ms)}
-                            </span>
-                          )}
-                        </>
-                      )}
-                      {isExpanded
-                        ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                        : <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                      }
-                    </div>
-                  </button>
-
-                  {/* Expanded: card snapshot */}
-                  {isExpanded && entry.card_data.length > 0 && entry.template && (
-                    <CardSnapshot entry={entry} />
-                  )}
-                </li>
-              );
-            })}
+            {nights.map((night) => (
+              <NightCard
+                key={night.roomId}
+                night={night}
+                myId={player!.id}
+                isExpanded={expandedId === night.roomId}
+                onToggle={() =>
+                  setExpandedId(expandedId === night.roomId ? null : night.roomId)
+                }
+              />
+            ))}
           </ul>
         )}
       </div>
     </main>
+  );
+}
+
+function NightCard({
+  night,
+  myId,
+  isExpanded,
+  onToggle,
+}: {
+  night: Night;
+  myId: string;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const date = night.date ? new Date(night.date) : null;
+  const iWon = night.rounds.some((r) => r.players.some((p) => p.playerId === myId && p.won));
+
+  return (
+    <li
+      className={cn(
+        'rounded-xl border bg-card overflow-hidden transition-colors',
+        iWon ? 'border-accent/40' : 'border-border',
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+      >
+        <div className="flex-1 min-w-0 space-y-0.5">
+          <p className="font-medium text-sm truncate">
+            {night.title}
+            {night.templateName && (
+              <span className="text-muted-foreground font-normal"> · {night.templateName}</span>
+            )}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {date && date.toLocaleDateString()}
+            {' · '}
+            <span className="font-mono">{night.rounds.length}</span>
+            {night.rounds.length === 1 ? ' round' : ' rounds'}
+            {night.winners.length > 0 && ` · Won by ${night.winners.join(', ')}`}
+          </p>
+        </div>
+
+        {/* Avatar stack — who was there */}
+        <div className="flex -space-x-2 shrink-0">
+          {night.roster.slice(0, 5).map((r) => (
+            <div key={r.playerId} className="ring-2 ring-card rounded-full">
+              <PlayerAvatar
+                playerId={r.playerId}
+                displayName={r.displayName}
+                avatarUrl={r.avatarUrl}
+                size="xs"
+              />
+            </div>
+          ))}
+        </div>
+
+        {isExpanded
+          ? <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" strokeWidth={1.75} />
+          : <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" strokeWidth={1.75} />
+        }
+      </button>
+
+      {isExpanded && (
+        <div className="border-t border-border divide-y divide-border">
+          {night.rounds.map((round) => (
+            <RoundRow key={round.gameId} round={round} night={night} myId={myId} />
+          ))}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function RoundRow({ round, night, myId }: { round: Round; night: Night; myId: string }) {
+  // A round the host abandoned by starting the next one. It counts for nobody.
+  const cancelled = round.status === 'cancelled';
+  const me = round.players.find((p) => p.playerId === myId);
+
+  return (
+    <div className={cn('px-4 py-3 space-y-2', cancelled && 'opacity-60')}>
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          Round <span className="font-mono">{round.roundNumber}</span>
+        </p>
+        {cancelled && <span className="text-xs text-muted-foreground">No winner</span>}
+      </div>
+
+      <ul className="space-y-1">
+        {round.players.map((p) => (
+          <li key={p.rowId} className="flex items-center gap-2 text-sm">
+            <PlayerAvatar
+              playerId={p.playerId}
+              displayName={p.displayName}
+              avatarUrl={p.avatarUrl}
+              size="xs"
+            />
+            <span className={cn('truncate', p.playerId === myId && 'font-medium')}>
+              {p.displayName}
+            </span>
+
+            {p.won && !cancelled && (
+              <>
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold"
+                  style={{
+                    color: 'var(--gold)',
+                    backgroundColor: 'color-mix(in oklab, var(--gold) 18%, transparent)',
+                  }}
+                >
+                  {p.finishPosition === 2 ? '2ND' : '1ST'}
+                </span>
+                {round.winPattern && (
+                  <span className="text-xs text-muted-foreground">
+                    {formatPattern(round.winPattern)}
+                  </span>
+                )}
+              </>
+            )}
+
+            <span className="ml-auto font-mono text-xs text-muted-foreground">
+              {p.marks}/{p.total}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {me?.card && me.card.length > 0 && <CardSnapshot entry={me} night={night} />}
+    </div>
   );
 }
 
@@ -235,26 +401,25 @@ export default function HistoryPage() {
  * card_data from the DB already has FREE embedded at center (if free space was on),
  * so we filter it out and pass freeSpace=true for correct rendering.
  */
-function CardSnapshot({ entry }: { entry: HistoryEntry }) {
-  const raw = entry.card_data;
+function CardSnapshot({ entry, night }: { entry: RoundPlayer; night: Night }) {
+  const raw = entry.card ?? [];
   const hasFreeSpace = raw.some((item) => item.isFreeSpace);
 
   // Filter out the FREE sentinel so BingoBoard can insert it via its own logic
   const items = hasFreeSpace ? raw.filter((item) => !item.isFreeSpace) : raw;
-  const boardSize = entry.template!.board_size;
-  const markedIndices = new Set(entry.marks);
+  const markedIndices = new Set(entry.markIndices);
 
   return (
-    <div className="px-4 pb-4 border-t border-border pt-3">
-      <p className="text-xs text-muted-foreground mb-3 uppercase tracking-widest">Your card</p>
+    <div className="pt-2">
+      <p className="text-xs text-muted-foreground mb-2 uppercase tracking-widest">Your card</p>
       {/* pointer-events-none prevents interaction with the snapshot */}
       <div className="pointer-events-none">
         <BingoBoard
           items={items}
-          boardSize={boardSize}
+          boardSize={night.boardSize}
           freeSpace={hasFreeSpace}
           variant="game"
-          styles={entry.template!.styles}
+          styles={night.styles}
           markedIndices={markedIndices}
           calledIndices={markedIndices}
           className="max-w-xs"

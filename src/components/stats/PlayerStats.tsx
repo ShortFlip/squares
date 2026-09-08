@@ -31,10 +31,16 @@ export function PlayerStats({ playerId, displayName, avatarUrl, compact }: Playe
     const supabase = createClient();
     supabase
       .from('game_players')
-      .select('won, bingo_time_ms, games!game_players_game_id_fkey(win_pattern)')
+      .select('won, bingo_time_ms, games!game_players_game_id_fkey(win_pattern, status)')
       .eq('player_id', playerId)
-      .then(({ data }) => {
-        if (!data) { setIsLoading(false); return; }
+      .then(({ data: raw }) => {
+        if (!raw) { setIsLoading(false); return; }
+
+        // A round the host abandoned counts for nobody — same rule the
+        // leaderboard applies, so the two screens never disagree.
+        const data = raw.filter(
+          (r) => (r.games as { status: string } | null)?.status !== 'cancelled',
+        );
 
         const totalGames = data.length;
         const wins = data.filter((r) => r.won);

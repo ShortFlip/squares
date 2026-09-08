@@ -17,3 +17,15 @@ export function getBrowserId(): string {
   }
   return id;
 }
+
+/**
+ * Overwrite the browser identity with an existing player's `browser_id`.
+ *
+ * Used by the claim-code flow: typing your code on a second PC points that PC
+ * at the player row you already have, instead of creating a duplicate. Nothing
+ * is written to the database, so the original machine keeps working too.
+ * Callers should reload afterwards — identity is resolved once, on mount.
+ */
+export function setBrowserId(id: string): void {
+  localStorage.setItem(BROWSER_ID_KEY, id);
+}
