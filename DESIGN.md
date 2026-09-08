@@ -236,7 +236,7 @@ its own gold so the win moment reads as metal against that particular ground.
 | Obsidian | `oklch(0.085 0.01 275)` near-black | Violet (inherited) | `oklch(0.84 0.16 88)` |
 | Forest | `oklch(0.15 0.03 152)` | Emerald `oklch(0.65 0.22 152)` | `oklch(0.83 0.15 92)` warmer, to clear the emerald |
 | Ocean | `oklch(0.15 0.03 220)` | Sky `oklch(0.65 0.18 210)` | `oklch(0.84 0.15 90)` |
-| Crimson | `oklch(0.15 0.03 18)` | Violet (inherited) | `oklch(0.85 0.15 95)` pushed yellow, to clear the red ground |
+| Crimson | `oklch(0.15 0.03 18)` | Rose `oklch(0.65 0.22 15)` | `oklch(0.85 0.15 95)` pushed yellow, to clear the red ground |
 | Latte (light) | `oklch(0.96 0.012 80)` cream | Violet `oklch(0.52 0.26 278)` | `oklch(0.60 0.14 82)` darkened to survive on cream |
 
 Amber stays fixed at `oklch(0.77 0.175 70)` in every theme: a marked square

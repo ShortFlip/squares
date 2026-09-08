@@ -216,16 +216,22 @@
   --background: oklch(0.15 0.03 18);
   --card:       oklch(0.21 0.035 18);
   --popover:    oklch(0.21 0.035 18);
+  /* Rose primary, matching the picker swatch (#f43f5e). Without this the
+     theme inherited Midnight's violet and read as red ground, violet accent. */
+  --primary:    oklch(0.65 0.22 15);
   --secondary:  oklch(0.26 0.025 18);
   --muted:      oklch(0.26 0.025 18);
   --muted-foreground: oklch(0.72 0.04 18);
   --accent:     oklch(0.77 0.175 70);
   --border:     oklch(0.32 0.03 18);
   --input:      oklch(0.32 0.03 18);
+  --ring:       oklch(0.65 0.22 15);
   --grid-line:  oklch(0.32 0.03 18);
   --sidebar:    oklch(0.21 0.035 18);
+  --sidebar-primary: oklch(0.65 0.22 15);
   --sidebar-accent:  oklch(0.26 0.025 18);
   --sidebar-border:  oklch(0.32 0.03 18);
+  --sidebar-ring:    oklch(0.65 0.22 15);
   /* Pushed yellower so it does not read as the crimson ground. */
   --gold:       oklch(0.85 0.15 95);
 }
