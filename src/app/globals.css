@@ -43,6 +43,8 @@
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-grid-line: var(--grid-line);
+  /* Winner gold. Phase 2 only defines it; Phase 3 spends it on the win moment. */
+  --color-gold: var(--gold);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -80,6 +82,8 @@
   --success-foreground: oklch(0.985 0 0);
   /* Grid line default — subtle separator between squares */
   --grid-line: oklch(0.78 0.005 247);
+  /* Gold darkened for the light ground so it stays legible as text. */
+  --gold: oklch(0.62 0.14 88);
   --radius: 0.5rem;
   --chart-1: oklch(0.52 0.26 278);
   --chart-2: oklch(0.77 0.175 70);
@@ -128,6 +132,8 @@
   --success-foreground: oklch(0.985 0 0);
   /* Grid line default — clear separator between squares */
   --grid-line: oklch(0.34 0.016 271);
+  /* Winner gold — bright enough to read as metal on the dark ground. */
+  --gold: oklch(0.82 0.16 88);
   --radius: 0.5rem;
   --chart-1: oklch(0.62 0.26 278);
   --chart-2: oklch(0.77 0.175 70);
@@ -157,6 +163,7 @@
   --sidebar:    oklch(0.135 0.015 275);
   --sidebar-accent: oklch(0.18 0.012 275);
   --sidebar-border: oklch(0.205 0.014 271);
+  --gold:       oklch(0.84 0.16 88);
 }
 
 /* ── Forest — dark emerald ─────────────────────────────────────────────── */
@@ -178,6 +185,8 @@
   --sidebar-accent:  oklch(0.26 0.025 152);
   --sidebar-border:  oklch(0.32 0.03 152);
   --sidebar-ring:    oklch(0.65 0.22 152);
+  /* Nudged warmer so it separates from the emerald primary. */
+  --gold:       oklch(0.83 0.15 92);
 }
 
 /* ── Ocean — dark teal ─────────────────────────────────────────────────── */
@@ -199,6 +208,7 @@
   --sidebar-accent:  oklch(0.26 0.025 220);
   --sidebar-border:  oklch(0.32 0.03 220);
   --sidebar-ring:    oklch(0.65 0.18 210);
+  --gold:       oklch(0.84 0.15 90);
 }
 
 /* ── Crimson — dark red ────────────────────────────────────────────────── */
@@ -216,6 +226,8 @@
   --sidebar:    oklch(0.21 0.035 18);
   --sidebar-accent:  oklch(0.26 0.025 18);
   --sidebar-border:  oklch(0.32 0.03 18);
+  /* Pushed yellower so it does not read as the crimson ground. */
+  --gold:       oklch(0.85 0.15 95);
 }
 
 /* ── Latte — warm light ────────────────────────────────────────────────── */
@@ -249,6 +261,8 @@
   --sidebar-accent-foreground: oklch(0.18 0.01 60);
   --sidebar-border: oklch(0.82 0.02 80);
   --sidebar-ring: oklch(0.52 0.26 278);
+  /* Latte is a light theme: gold has to go dark to survive on cream. */
+  --gold:       oklch(0.60 0.14 82);
 }
 
 @layer base {
@@ -343,6 +357,81 @@
   animation: call-flip 300ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
   transform-origin: center;
   backface-visibility: hidden;
+}
+
+/* ── Glass ─────────────────────────────────────────────────────────────────
+   The panel material for the game screen: a lit top edge, a barely-there
+   gradient down the face, and a soft drop that separates it from the ground.
+   The blur is the ONE blur in the app — it is the material, not decoration. */
+.glass {
+  background: linear-gradient(
+    168deg,
+    rgba(255, 255, 255, 0.055) 0%,
+    rgba(255, 255, 255, 0.018) 42%,
+    rgba(255, 255, 255, 0.008) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 18px 40px -24px rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(14px);
+}
+
+/* Header variant: same material, but only the bottom edge is drawn so the bar
+   reads as an edge of the window rather than a floating card. */
+.glass-header {
+  background: linear-gradient(
+    168deg,
+    rgba(255, 255, 255, 0.055) 0%,
+    rgba(255, 255, 255, 0.018) 42%,
+    rgba(255, 255, 255, 0.008) 100%
+  );
+  border-bottom: 1px solid rgba(255, 255, 255, 0.085);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  backdrop-filter: blur(14px);
+}
+
+/* Light themes need the opposite treatment — white over white is invisible. */
+:root:not(.dark) .glass,
+:root:not(.dark) .glass-header {
+  background: linear-gradient(
+    168deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(255, 255, 255, 0.55) 100%
+  );
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Hot lane ──────────────────────────────────────────────────────────────
+   The unmarked squares of the line you are closest to. A flat 7% amber wash:
+   readable from across the room, never loud enough to compete with the ring
+   and glow of an actual mark. */
+.lane {
+  background-color: color-mix(in oklab, var(--accent) 7%, transparent);
+}
+
+/* ── Miniature tiles ───────────────────────────────────────────────────────
+   The rail's 20px-per-tile boards. No text, no animation: the whole point is
+   that shape and color carry the state at a glance. */
+.mt {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.mt-on {
+  background-color: var(--accent);
+  box-shadow: 0 0 5px color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
+.mt-free {
+  background-color: var(--primary);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--primary) 80%, transparent);
+}
+
+/* Every tile of the best line gets the outline — marked or not — so the line
+   reads as one shape rather than as separate lit tiles. */
+.mt-line {
+  outline: 1px solid color-mix(in oklab, var(--success) 85%, transparent);
+  outline-offset: 0;
 }
 
 /* Violet glass slab behind the current call. */

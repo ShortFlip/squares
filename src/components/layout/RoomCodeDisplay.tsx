@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/utils/copy-link';
 
 interface RoomCodeDisplayProps {
   code: string;
@@ -17,7 +18,10 @@ export function RoomCodeDisplay({ code, className }: RoomCodeDisplayProps) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(code);
+    // Guarded: clipboard access can be denied, and the fallback toast shows
+    // the code itself so it can still be read out or selected by hand.
+    const ok = await copyText(code, 'Room code copied');
+    if (!ok) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
