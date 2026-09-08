@@ -25,16 +25,43 @@ export default function LeaderboardPage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from('game_players')
-      .select(`
-        player_id, won, bingo_time_ms,
-        players!game_players_player_id_fkey (
-          display_name, avatar_url
-        )
-      `)
-      .then(({ data, error }) => {
+    if (!player) return;
+    const myId = player.id;
+
+    async function load() {
+      const supabase = createClient();
+
+      // The board is scoped to the friend group, which we define as everyone
+      // who has shared a room with me (Decision B). Step one: my rooms; step
+      // two: every row from every round of those rooms. `!inner` makes the room
+      // filter apply to the parent row rather than merely nulling the embed.
+      const { data: mine, error: mineError } = await supabase
+        .from('game_players')
+        .select('games!game_players_game_id_fkey (room_id)')
+        .eq('player_id', myId);
+
+      if (mineError) { console.error(mineError); setIsLoading(false); return; }
+
+      const roomIds = Array.from(new Set(
+        (mine ?? [])
+          .map((row) => (row.games as { room_id: string } | null)?.room_id)
+          .filter((id): id is string => !!id),
+      ));
+
+      if (roomIds.length === 0) { setRows([]); setIsLoading(false); return; }
+
+      const { data, error } = await supabase
+        .from('game_players')
+        .select(`
+          player_id, won, bingo_time_ms,
+          games!inner ( room_id, status ),
+          players!game_players_player_id_fkey (
+            display_name, avatar_url
+          )
+        `)
+        .in('games.room_id', roomIds);
+
+      {
         if (error) { console.error(error); setIsLoading(false); return; }
 
         // Aggregate stats per player client-side
@@ -43,6 +70,10 @@ export default function LeaderboardPage() {
         (data ?? []).forEach((record) => {
           const p = record.players as { display_name: string; avatar_url: string | null } | null;
           if (!p) return;
+
+          // A round the host abandoned never happened, for anybody.
+          const g = record.games as unknown as { status: string } | null;
+          if (g?.status === 'cancelled') return;
 
           if (!map.has(record.player_id)) {
             map.set(record.player_id, {
@@ -83,8 +114,11 @@ export default function LeaderboardPage() {
 
         setRows(sorted);
         setIsLoading(false);
-      });
-  }, []);
+      }
+    }
+
+    load();
+  }, [player?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <main className="min-h-screen px-4 py-12">
@@ -100,7 +134,9 @@ export default function LeaderboardPage() {
             Home
           </Link>
           <h1 className="font-display text-3xl font-black">Leaderboard</h1>
-          <p className="text-muted-foreground text-sm">All-time rankings across every game</p>
+          <p className="text-muted-foreground text-sm">
+            Everyone who has played a night with you. Cancelled rounds don&apos;t count.
+          </p>
         </div>
 
         {isLoading ? (
@@ -110,7 +146,7 @@ export default function LeaderboardPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center">
-            <p className="text-muted-foreground text-sm">No games played yet — be the first!</p>
+            <p className="font-display font-bold">No one on the board yet</p>
           </div>
         ) : (
           <>
