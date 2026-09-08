@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Squares
 
-## Getting Started
+A real-time multiplayer bingo app for small friend groups. A host builds a custom
+card template, starts a room, and friends join with a six-character code. Everyone
+gets their own deterministically shuffled card, marks squares live, and wins are
+announced to the whole room.
 
-First, run the development server:
+Desktop-first — this is a personal project for a recurring game night, not a
+product.
+
+## Stack
+
+- Next.js (App Router) + React + TypeScript (strict)
+- Tailwind CSS + shadcn/ui, sonner for toasts
+- Zustand for game state
+- Supabase — Postgres, Auth (anonymous), Storage, and Realtime (broadcast +
+  postgres_changes fallback)
+- Cloudflare Workers (via OpenNext) for hosting
+
+## Running locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev          # http://localhost:3000
+npx tsc --noEmit     # type check
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Copy `.env.local.example` to `.env.local` and fill in:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Notes |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side only — never expose to the client |
 
-## Learn More
+## Database
 
-To learn more about Next.js, take a look at the following resources:
+Migrations live in `supabase/migrations/` and are applied manually against the
+Supabase project (`supabase db push`, or pasted into the SQL editor). They are
+ordered by filename timestamp.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Deploys are automatic: pushing to `master` runs the GitHub Actions workflow that
+builds with OpenNext and publishes to **Cloudflare Workers with Assets**. Do not
+use Cloudflare Pages or `wrangler pages deploy` — this project is a Worker.
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+A second scheduled workflow pings Supabase twice a week to keep the free-tier
+project from being paused for inactivity.

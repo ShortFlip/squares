@@ -41,12 +41,16 @@ export function CalledItems() {
         <span
           key={`${idx}-${i}`}
           className={cn(
-            'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium transition-colors',
+            'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-150',
             i === 0
-              ? 'bg-primary text-primary-foreground ring-2 ring-primary/40' // most recent
+              // Most recent: amber ring so the newest call reads instantly
+              ? 'bg-primary text-primary-foreground ring-2 ring-accent shadow-[0_0_12px_color-mix(in_oklab,var(--accent)_40%,transparent)]'
               : onMyCard.has(idx)
               ? 'bg-accent/20 text-foreground border border-accent/40'      // on my card
               : 'bg-muted text-muted-foreground',                            // not on my card
+            // Older calls recede slightly so the list reads newest-first
+            i > 0 && 'opacity-80',
+            i > 4 && 'opacity-60',
           )}
         >
           {item.text}

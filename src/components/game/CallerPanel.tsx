@@ -61,17 +61,25 @@ export function CallerPanel({ gameId, onCallNext }: CallerPanelProps) {
         </span>
       </div>
 
-      {/* Current item display */}
-      <div className="rounded-xl border border-border bg-card/60 p-5 min-h-[96px] flex items-center justify-center text-center">
-        {currentItem ? (
-          <p className="font-display text-xl font-bold leading-snug">
-            {currentItem.text}
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Hit &ldquo;Call Next&rdquo; to start the game
-          </p>
-        )}
+      {/* Current item display — 3D flip on each new call.
+          perspective lives on the wrapper so the inner card rotates in depth. */}
+      <div style={{ perspective: '900px' }}>
+        <div
+          // Keying on calledCount remounts the card, which restarts the
+          // flip animation — no state or effect needed.
+          key={calledCount}
+          className="call-flip call-glass rounded-xl p-5 min-h-[96px] flex items-center justify-center text-center"
+        >
+          {currentItem ? (
+            <p className="font-display text-xl font-bold leading-snug">
+              {currentItem.text}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Hit &ldquo;Call Next&rdquo; to start the game
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Progress bar */}
