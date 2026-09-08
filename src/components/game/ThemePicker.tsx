@@ -8,6 +8,10 @@ export function ThemePicker() {
   const [current, setCurrent] = useState<ThemeId>('midnight');
 
   useEffect(() => {
+    // Read localStorage after mount on purpose: reading it in the useState
+    // initializer would render a different theme on the server vs client and
+    // trigger a hydration mismatch. This is the one legit setState-in-effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCurrent(getSavedTheme());
   }, []);
 

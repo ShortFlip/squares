@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 import { generateCard } from '@/lib/game/shuffle';
 import { useGameStore } from '@/stores/gameStore';
@@ -54,9 +55,12 @@ interface MarkUpdatedPayload {
  */
 export function useRealtimeRoom(
   roomCode: string,
+  // Room UUID — needed to filter the postgres_changes subscriptions below.
+  roomId: string,
   player: Player | null,
-  // Fired when the host closes the room (room_closed broadcast). Kept in a ref
-  // so a new callback identity doesn't tear down and resubscribe the channel.
+  // Fired when the room's lifecycle changes: the room_closed broadcast, or the
+  // postgres_changes fallback seeing rooms.status change. Kept in a ref so a new
+  // callback identity doesn't tear down and resubscribe the channel.
   onRoomClosed?: () => void,
 ) {
   const [presentPlayers, setPresentPlayers] = useState<PresencePlayer[]>([]);
@@ -65,6 +69,9 @@ export function useRealtimeRoom(
   const [playerMarks, setPlayerMarks] = useState<Record<string, number[]>>({});
   const channelRef = useRef<RealtimeChannel | null>(null);
   const onRoomClosedRef = useRef(onRoomClosed);
+  // Last rooms.status we acted on, so a duplicate UPDATE (or one that merely
+  // touched another column) doesn't trigger a redundant refresh.
+  const lastRoomStatusRef = useRef<string | null>(null);
   useEffect(() => {
     onRoomClosedRef.current = onRoomClosed;
   }, [onRoomClosed]);
@@ -119,7 +126,11 @@ export function useRealtimeRoom(
           },
           { onConflict: 'game_id,player_id' },
         ).then(({ error }) => {
-          if (error) console.error('Failed to create game_players record:', error);
+          if (error) {
+            console.error('Failed to create game_players record:', error);
+            // Generic copy — never surface raw DB error text to players.
+            toast.error('Your card could not be saved. Stats may be missing.');
+          }
         });
       })
 
@@ -141,6 +152,39 @@ export function useRealtimeRoom(
         onRoomClosedRef.current?.();
       })
 
+      // ── postgres_changes fallback ─────────────────────────────────────────
+      // Broadcasts are fire-and-forget: a tab that was asleep or briefly
+      // disconnected never sees them. These DB subscriptions replay the two
+      // pieces of state that actually matter (room lifecycle, call progress)
+      // so such a client self-heals instead of sitting on a stale screen.
+      // Both handlers are idempotent and dedupe against current state, so a
+      // client that DID get the broadcast does nothing extra here.
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
+        ({ new: row }: { new: { status?: string } }) => {
+          const status = row?.status;
+          if (!status || status === lastRoomStatusRef.current) return;
+          lastRoomStatusRef.current = status;
+          // Same handler as room_closed: re-render the server component so the
+          // right screen (lobby / board / game over) is chosen from the new status.
+          onRoomClosedRef.current?.();
+        },
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'games', filter: `room_id=eq.${roomId}` },
+        ({ new: row }: { new: { id?: string; calls_made?: number } }) => {
+          const store = useGameStore.getState();
+          // Ignore rows for a different round than the one we're rendering.
+          if (!row?.id || row.id !== store.gameId) return;
+          if (typeof row.calls_made !== 'number') return;
+          // Never rewind: the broadcast may already have moved us further along.
+          if (row.calls_made <= store.calledCount) return;
+          store.setCalledCount(row.calls_made);
+        },
+      )
+
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           setIsConnected(true);
@@ -158,7 +202,9 @@ export function useRealtimeRoom(
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [roomCode, player?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Only re-subscribe on identity changes; the store setters and the
+    // onRoomClosed callback are read through refs/getState on purpose.
+  }, [roomCode, roomId, player?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Send a broadcast event to the room channel */
   async function broadcast(event: string, payload: Record<string, unknown>) {

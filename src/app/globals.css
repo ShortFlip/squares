@@ -257,8 +257,110 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Faint violet vignette bleeding down from the top — gives the flat
+       charcoal ground some depth without touching text contrast (it sits
+       in the background paint, not an overlay). */
+    background-image: radial-gradient(
+      120% 70% at 50% -20%,
+      color-mix(in oklab, var(--primary) 14%, transparent) 0%,
+      transparent 60%
+    );
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
+  }
+
+  /* Full-viewport film-grain overlay. Attached to body::before so no page
+     needs markup changes; pointer-events:none keeps it fully click-through. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    /* Sits above all content so the grain is uniform across cards and the
+       ground alike; at 3.5% it is texture, not a scrim. */
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* ── Signature motion ──────────────────────────────────────────────────── */
+
+/* Quick "dab" — the physical feel of stamping a bingo square. */
+@keyframes sq-dab {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+/* Amber breathing glow. 0%/100% is the RESTING glow so it lines up exactly
+   with the static box-shadow that takes over once the animation finishes —
+   no visible jump when it settles. --sq-glow is overridden inline when a
+   card template supplies a custom marked color. */
+@keyframes sq-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 2px var(--sq-glow, oklch(0.77 0.175 70)),
+      0 0 14px color-mix(in oklab, var(--sq-glow, oklch(0.77 0.175 70)) 35%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--sq-glow, oklch(0.77 0.175 70)),
+      0 0 26px color-mix(in oklab, var(--sq-glow, oklch(0.77 0.175 70)) 70%, transparent);
+  }
+}
+
+.sq-marked {
+  /* 150ms dab, then three 2s breaths that settle back to the resting glow. */
+  animation:
+    sq-dab 150ms ease-out,
+    sq-pulse 2s ease-in-out 150ms 3;
+}
+
+/* Free space gets its own identity: a static violet bloom, never pulsing —
+   it is always "on", so animating it would compete with real marks. */
+.sq-free {
+  background-image: radial-gradient(
+    circle at 50% 45%,
+    color-mix(in oklab, var(--primary) 35%, transparent) 0%,
+    transparent 70%
+  );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, var(--primary) 55%, transparent),
+    0 0 18px color-mix(in oklab, var(--primary) 22%, transparent);
+}
+
+/* "Now calling" reveal — the card turns over to show the new item. */
+@keyframes call-flip {
+  0%   { transform: rotateY(-90deg); opacity: 0; }
+  60%  { transform: rotateY(8deg);   opacity: 1; }
+  100% { transform: rotateY(0deg);   opacity: 1; }
+}
+
+.call-flip {
+  animation: call-flip 300ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  transform-origin: center;
+  backface-visibility: hidden;
+}
+
+/* Violet glass slab behind the current call. */
+.call-glass {
+  background: linear-gradient(
+    160deg,
+    color-mix(in oklab, var(--primary) 18%, transparent) 0%,
+    color-mix(in oklab, var(--card) 85%, transparent) 70%
+  );
+  border: 1px solid color-mix(in oklab, var(--primary) 55%, transparent);
+  box-shadow:
+    0 0 24px color-mix(in oklab, var(--primary) 22%, transparent),
+    inset 0 1px 0 color-mix(in oklab, white 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sq-marked,
+  .call-flip {
+    animation: none;
   }
 }

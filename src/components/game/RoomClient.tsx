@@ -11,7 +11,7 @@ import { usePlayer } from '@/hooks/usePlayer';
 import { useGameStore } from '@/stores/gameStore';
 import { createClient } from '@/lib/supabase/client';
 import { generateCard } from '@/lib/game/shuffle';
-import { generateCallList } from '@/lib/game/call-list';
+import { buildGameSetup } from '@/lib/game/game-setup';
 import { checkWin } from '@/lib/game/win-detection';
 import type { Room, WinPattern, GameMode } from '@/types/game';
 import type { SquareItem, CardStyles } from '@/types/card';
@@ -25,11 +25,12 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
   const { player, isLoading } = usePlayer();
   const { presentPlayers, isConnected, playerMarks, broadcast } = useRealtimeRoom(
     initialRoom.join_code,
+    initialRoom.id,
     player,
     // room_closed → re-render the server component so status 'finished' shows GameOver
     () => router.refresh(),
   );
-  const { gameId, winners, resetGame } = useGameStore();
+  const { gameId } = useGameStore();
 
   // Debounce timer for persisting marks to game_players — marks change on every
   // tap, but the DB only needs the latest snapshot (used for reconnect restore).
@@ -38,12 +39,14 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     if (persistMarksTimer.current) clearTimeout(persistMarksTimer.current);
   }, []);
 
-  // Transition lobby → game when game_started broadcast sets gameId
+  // Transition lobby → game (and Game Over → game, when the host hits "Play
+  // Again") once a game_started broadcast puts a gameId in the store. The
+  // server component still holds the old rooms.status, so re-render it.
   useEffect(() => {
-    if (gameId && initialRoom.status === 'waiting') {
+    if (gameId && initialRoom.status !== 'playing') {
       router.refresh();
     }
-  }, [gameId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gameId, initialRoom.status, router]);
 
   // Reconnect: if the room is already playing but our store is empty (e.g. tab was
   // closed mid-game), fetch the active game from the DB and rebuild state locally.
@@ -76,12 +79,10 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
 
       if (!template) return;
 
-      const settings = (initialRoom.settings as { winPatterns?: WinPattern[]; gameMode?: GameMode } | null) ?? {};
-      const winPatterns: WinPattern[] = settings.winPatterns ?? ['row', 'column', 'diagonal'];
-
-      // Filter empties — same logic as game start so indices are consistent
-      const items = (template.items as SquareItem[])
-        .filter((item) => item.text?.trim() || item.imageUrl);
+      // Same bootstrap the lobby/new-round paths use, seeded from the existing
+      // game so the item filter (and therefore indices) can't drift.
+      const setup = buildGameSetup(template, initialRoom.settings, game.seed);
+      const items = setup.items;
 
       const { initGame, setMyCard, setCalledCount, setMyMarks } = useGameStore.getState();
 
@@ -89,14 +90,16 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         gameId: game.id,
         seed: game.seed,
         roundNumber: game.round_number,
+        // The persisted call list wins over a regenerated one — it's what the
+        // host has actually been calling from.
         callList: game.call_list as number[],
         templateItems: items,
-        boardSize: template.board_size,
-        freeSpace: template.free_space,
-        shuffleMode: template.shuffle_mode as 'full' | 'column',
-        winPatterns,
-        gameMode: settings.gameMode ?? 'honor',
-        cardStyles: (template.styles as CardStyles) ?? {},
+        boardSize: setup.boardSize,
+        freeSpace: setup.freeSpace,
+        shuffleMode: setup.shuffleMode,
+        winPatterns: setup.winPatterns,
+        gameMode: setup.gameMode,
+        cardStyles: setup.cardStyles,
       });
 
       // Restore how far the host has called
@@ -131,9 +134,9 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         items,
         game.seed,
         playerId,
-        template.board_size,
-        template.shuffle_mode as 'full' | 'column',
-        template.free_space,
+        setup.boardSize,
+        setup.shuffleMode,
+        setup.freeSpace,
       );
       setMyCard(card);
 
@@ -151,11 +154,21 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         supabase.from('game_players').upsert(
           { game_id: game.id, player_id: playerId, card_data: card as unknown as import('@/lib/supabase/types').Json, marks: [], won: false },
           { onConflict: 'game_id,player_id' },
-        ).then(({ error }) => { if (error) console.error('Failed to create game_players on reconnect:', error); });
+        ).then(({ error }) => {
+          if (error) {
+            console.error('Failed to create game_players on reconnect:', error);
+            // Generic copy — never surface raw DB error text to players.
+            toast.error('Could not join this round. Try refreshing.');
+          }
+        });
       }
     }
 
     reconnect().catch((err) => console.error('Reconnect failed:', err));
+    // Deps are deliberately narrowed to the identity fields: `initialRoom` is a
+    // fresh object on every server re-render, so depending on it (or on
+    // `initialRoom.settings`) would re-run this whole reconnect fetch on every
+    // router.refresh().
   }, [initialRoom.status, initialRoom.id, initialRoom.template_id, player?.id, gameId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Event handlers ────────────────────────────────────────────────────────
@@ -198,7 +211,13 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         .from('game_players')
         .update({ marks: myMarks })
         .match({ game_id: gid, player_id: playerId })
-        .then(({ error }) => { if (error) console.error('Failed to persist marks:', error); });
+        .then(({ error }) => {
+          if (error) {
+            console.error('Failed to persist marks:', error);
+            // Marks still live in the store, but a refresh would lose them.
+            toast.error('Your marks could not be saved. Avoid refreshing.');
+          }
+        });
     }, 500);
   }
 
@@ -229,7 +248,12 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
       finish_position: finishPosition,
       bingo_time_ms: bingoTimeMs,
     }).match({ game_id: gid, player_id: player.id })
-      .then(({ error }) => { if (error) console.error('Failed to persist win:', error); });
+      .then(({ error }) => {
+        if (error) {
+          console.error('Failed to persist win:', error);
+          toast.error('Your win was announced but not recorded in stats.');
+        }
+      });
 
     // Update game status on first winner
     if (currentWinners.length === 0) {
@@ -238,7 +262,12 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         win_pattern: pattern,
         ended_at: new Date().toISOString(),
       }).eq('id', gid)
-        .then(({ error }) => { if (error) console.error('Failed to update game status:', error); });
+        .then(({ error }) => {
+          if (error) {
+            console.error('Failed to update game status:', error);
+            toast.error('Round result could not be saved.');
+          }
+        });
     }
 
     await broadcast('bingo_confirmed', {
@@ -271,13 +300,9 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
           .eq('id', prevGameId);
       }
 
-      const seed = crypto.randomUUID();
-      // Filter empty pool slots — keeps legacy templates clean (see shuffle.ts comment)
-      const items = (template.items as SquareItem[])
-        .filter((item) => item.text?.trim() || item.imageUrl);
-      const callList = generateCallList(items.length, seed);
-      const settings = (initialRoom.settings as { winPatterns?: WinPattern[]; gameMode?: GameMode } | null) ?? {};
-      const winPatterns: WinPattern[] = settings.winPatterns ?? ['row', 'column', 'diagonal'];
+      // Shared bootstrap: item filter + settings parse + fresh seed/call list
+      const setup = buildGameSetup(template, initialRoom.settings);
+      const { seed, items, callList } = setup;
 
       const { data: game, error } = await supabase
         .from('games')
@@ -300,13 +325,27 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         roundNumber: game.round_number,
         callList,
         templateItems: items,
-        boardSize: template.board_size,
-        freeSpace: template.free_space,
-        shuffleMode: template.shuffle_mode,
-        winPatterns,
-        gameMode: settings.gameMode ?? 'honor',
-        cardStyles: (template.styles as CardStyles) ?? {},
+        boardSize: setup.boardSize,
+        freeSpace: setup.freeSpace,
+        shuffleMode: setup.shuffleMode,
+        winPatterns: setup.winPatterns,
+        gameMode: setup.gameMode,
+        cardStyles: setup.cardStyles,
       });
+
+      // If we're coming back from the 'finished' state (host hit "Play Again"
+      // on the Game Over screen), the room row still says 'finished' — flip it
+      // back so a refresh/late joiner lands on the board, not Game Over.
+      if (initialRoom.status !== 'playing') {
+        const { error: roomError } = await supabase
+          .from('rooms')
+          .update({ status: 'playing' })
+          .eq('id', initialRoom.id);
+        if (roomError) throw roomError;
+        // room_reopened isn't a thing — game_started above already moved every
+        // client's store; the refresh swaps the server-rendered shell.
+        router.refresh();
+      }
     } catch (err) {
       console.error('Failed to start new round:', err);
       toast.error('Could not start a new round.');
@@ -351,6 +390,9 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         room={initialRoom}
         currentPlayerId={player.id}
         presentPlayers={presentPlayers}
+        // Host can restart from the finished state; GameOver hides the button
+        // for non-hosts and shows a "waiting for the host" line instead.
+        onNewRound={handleNewRound}
       />
     );
   }

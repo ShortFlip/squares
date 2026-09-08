@@ -6,7 +6,7 @@ import { Loader2, Play } from 'lucide-react';
 import { RoomCodeDisplay } from '@/components/layout/RoomCodeDisplay';
 import { PlayerList } from './PlayerList';
 import { createClient } from '@/lib/supabase/client';
-import { generateCallList } from '@/lib/game/call-list';
+import { buildGameSetup } from '@/lib/game/game-setup';
 import { Button } from '@/components/ui/button';
 import type { Room, WinPattern, GameMode } from '@/types/game';
 import type { PresencePlayer } from '@/hooks/useRealtimeRoom';
@@ -60,17 +60,9 @@ export function GameLobby({
 
       if (templateError || !template) throw templateError ?? new Error('Template not found');
 
-      const seed = crypto.randomUUID();
-      // Filter out empty pool slots — handles both new templates (empty center slot)
-      // and legacy templates saved before the April-10 fix (empty trailing slot).
-      // generateCard uses the same content filter so card and call list stay in sync.
-      const items = (template.items as { text?: string; imageUrl?: string; clue?: string }[])
-        .filter((item) => item.text?.trim() || item.imageUrl);
-      const callList = generateCallList(items.length, seed);
-
-      const settings = (room.settings as { winPatterns?: WinPattern[]; gameMode?: GameMode } | null) ?? {};
-      const winPatterns: WinPattern[] = settings.winPatterns ?? ['row', 'column', 'diagonal'];
-      const gameMode: GameMode = settings.gameMode ?? 'honor';
+      // Shared bootstrap: item filter + settings parse + call list (see game-setup.ts)
+      const setup = buildGameSetup(template, room.settings);
+      const { seed, items, callList } = setup;
 
       // Create the game record in the DB
       const { data: game, error: gameError } = await supabase
@@ -89,9 +81,8 @@ export function GameLobby({
       if (gameError || !game) throw gameError ?? new Error('Failed to create game');
 
       // Update room status to 'playing'. Clients transition via the game_started
-      // broadcast below (there's no postgres_changes subscription — the tables
-      // aren't in the realtime publication); a player who misses the broadcast
-      // recovers on manual refresh through RoomClient's reconnect path.
+      // broadcast below; a client that missed it (slept tab) also picks the
+      // status change up from the postgres_changes fallback in useRealtimeRoom.
       const { error: roomError } = await supabase.from('rooms').update({ status: 'playing' }).eq('id', room.id);
       if (roomError) throw roomError;
 
@@ -102,12 +93,12 @@ export function GameLobby({
         roundNumber: 1,
         callList,
         templateItems: items,
-        boardSize: template.board_size,
-        freeSpace: template.free_space,
-        shuffleMode: template.shuffle_mode as 'full' | 'column',
-        winPatterns,
-        gameMode,
-        cardStyles: (template.styles as CardStyles) ?? {},
+        boardSize: setup.boardSize,
+        freeSpace: setup.freeSpace,
+        shuffleMode: setup.shuffleMode,
+        winPatterns: setup.winPatterns,
+        gameMode: setup.gameMode,
+        cardStyles: setup.cardStyles,
       });
     } catch (err) {
       console.error('Failed to start game:', err);

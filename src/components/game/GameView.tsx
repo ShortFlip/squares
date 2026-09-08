@@ -72,6 +72,9 @@ export function GameView({
         useGameStore.getState().setHasClaimed(false);
       });
     }
+    // Only `currentWin` may trigger this. Adding onBingoClaim (a new identity
+    // each parent render) plus hasClaimed would let a failed claim — which
+    // resets hasClaimed to false — immediately re-fire in a retry loop.
   }, [currentWin]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleMark(gridIndex: number) {

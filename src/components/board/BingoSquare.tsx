@@ -72,8 +72,8 @@ export function BingoSquare({
         }}
         className={cn(
           base,
-          // Only use default Tailwind colors when no custom override
-          !styles?.squareBgFree && 'bg-primary/20 ring-1 ring-primary/50',
+          // Only use the violet bloom treatment when no custom override
+          !styles?.squareBgFree && 'sq-free bg-primary/15',
           'select-none',
         )}
       >
@@ -140,16 +140,22 @@ export function BingoSquare({
 
   // GAME variant — mark on click, glow when marked
   if (variant === 'game') {
+    // The pulse keyframes read --sq-glow, so a custom marked color drives the
+    // animation too. The static box-shadow below is byte-identical to the
+    // keyframes' 0%/100% frame, so the glow settles without a visible jump.
+    const customGlow = styles?.squareBgMarked;
     const gameStyle = {
       ...baseInlineStyle,
       ...(hasCustomColors && {
         backgroundColor: isMarked ? styles?.squareBgMarked : styles?.squareBg,
-        // Glow using the marked color when custom styles are active
-        boxShadow: isMarked && styles?.squareBgMarked
-          ? `0 0 0 2px ${styles.squareBgMarked}, 0 0 14px ${styles.squareBgMarked}80`
-          : undefined,
+        ...(isMarked && customGlow
+          ? {
+              '--sq-glow': customGlow,
+              boxShadow: `0 0 0 2px ${customGlow}, 0 0 14px color-mix(in oklab, ${customGlow} 35%, transparent)`,
+            }
+          : {}),
       }),
-    };
+    } as React.CSSProperties;
 
     return (
       <button
@@ -159,10 +165,15 @@ export function BingoSquare({
         className={cn(
           base,
           'cursor-pointer select-none',
+          // 150ms dab + amber breathing pulse that settles. Applied for custom
+          // palettes too — the keyframes pick up --sq-glow from the inline style.
+          isMarked && 'sq-marked',
           // Default Tailwind colors only when no custom override
           !hasCustomColors && isMarked && [
-            'bg-accent/25 ring-2 ring-accent text-foreground',
-            'shadow-[0_0_14px_rgba(245,158,11,0.35)]',
+            // No ring-* here: the 2px ring is baked into the shadow below so it
+            // matches the pulse keyframes exactly.
+            'bg-accent/25 text-foreground',
+            'shadow-[0_0_0_2px_var(--accent),0_0_14px_color-mix(in_oklab,var(--accent)_35%,transparent)]',
           ],
           !hasCustomColors && isCalled && !isMarked && 'bg-primary/10 text-foreground',
           !hasCustomColors && !isMarked && !isCalled && 'hover:bg-primary/5',
