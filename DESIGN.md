@@ -87,7 +87,7 @@ second winner without the host doing anything.
 
 Two genuinely different structures were considered.
 
-**A. Scoreboard (chosen).** My board is the hero, filling most of the window.
+**A. Scoreboard (chosen; confirmed by Ryann 2026-09-07 from the mockup canvas).** My board is the hero, filling most of the window.
 A rail on the right holds every other player's board as a live miniature,
 readable at a glance (marked squares as filled tiles, best line highlighted),
 plus name and progress. The rail is the "everyone's board on one sheet"
@@ -179,6 +179,13 @@ links need a logged-in Mobbin session; the local files do not.
 - [Codecademy course-complete](https://mobbin.com/screens/c827145c-7d03-4771-908c-6a6c4be2abc7): full-bleed dark celebration with confetti and
   one gold object. That is the bingo banner.
 
+### Mockups
+
+Approved game-screen mockups (Scoreboard, Arena for comparison, Bingo
+Moment) live on the design canvas:
+https://claude.ai/code/artifact/0fd2c5cf-42bb-4202-bfe9-ed36ee460cbb
+Built from the real globals.css tokens; the build should match them.
+
 ### Still to specify
 
 - Type scale (display sizes for code, names, banner)
@@ -188,3 +195,42 @@ links need a logged-in Mobbin session; the local files do not.
   settle)
 - The miniature board's visual language at ~120px wide
 - Reconnecting and syncing indicators
+
+---
+
+## Build findings (2026-09-07 audit, feed into the plan)
+
+Ryann's asks after approving the mockups: persistent identity without
+signup, history of games played, and a review of import + randomize.
+
+**Identity.** Anchor is a localStorage UUID matched to `players.browser_id`.
+Same browser a week later works, avatar included (Supabase Storage,
+public URL on the player row). Cleared site data, a new browser, or a new
+PC silently creates a new player and orphans all history. The anonymous
+auth session exists but is never used as a lookup key. Requirement: a
+short **claim code** on the profile ("Enter this on another PC to be you
+again") that re-links `browser_id` to the existing row. Three friends, no
+signup, so this is the whole recovery story.
+
+**History.** History shows only your own rows: card, room, round, win
+badge, your board. It does not show who else played or who won.
+Leaderboard fetches every `game_players` row for everyone and counts
+cancelled games as played. `game_nights` table is dead. Requirement:
+history is per **night** (room), lists every player and the winner per
+round; leaderboard is scoped to the friend group and ignores cancelled
+games.
+
+**Import + randomize.** Parser splits on newlines only, no commas, no
+dedup. Fisher-Yates + mulberry32 are correct; each player gets a
+different card per round from seed + playerId. Two real bugs:
+
+- Pasting more lines than squares **silently truncates** at import. The
+  surplus-pool logic in `shuffle.ts` (different random subset per round)
+  exists but is unreachable because templates cap at N². Requirement:
+  templates hold the whole list; each round draws N² (or N²−1 with free
+  space) from it per player. This is the feature he thinks he built.
+- Pasting fewer lines than squares renders a short board. Requirement:
+  block save with a clear count ("24 needed, 10 so far").
+
+Also: accept commas as separators when a paste has no newlines, dedupe
+case-insensitively, and show the surplus count ("40 items, 24 per card").
