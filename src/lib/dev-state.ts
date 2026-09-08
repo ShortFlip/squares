@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useSyncExternalStore } from 'react';
-import type { OtherPlayer } from '@/stores/gameStore';
+import type { OtherPlayer, GameWinner } from '@/stores/gameStore';
 import type { SquareItem } from '@/types/card';
 
 /**
@@ -16,10 +16,12 @@ export interface DevOverrides {
   marks?: number[];
   boardSize?: number;
   freeSpace?: boolean;
+  /** Stands in for the store's winners so the win moment can be captured. */
+  winners?: GameWinner[];
 }
 
 /**
- * Reads `?state=reconnecting|syncing|dense` — development only.
+ * Reads `?state=reconnecting|syncing|dense|won|won2` — development only.
  *
  * The whole body is behind a NODE_ENV check so the fake players and their
  * names are dead code in a production build and get dropped by the minifier.
@@ -58,6 +60,28 @@ function buildOverrides(state: string | null): DevOverrides | null {
     return { forceReconnecting: false, others: fakeFive().slice(0, 4) };
   }
 
+  // The win moment: Dan has taken column 2. Everyone is synced, because the
+  // banner and the gold rail card are what is being looked at.
+  if (state === 'won') {
+    return {
+      forceReconnecting: false,
+      others: wonRail(),
+      winners: [{ playerId: 'dev-dan', displayName: 'Dan', pattern: 'column' }],
+    };
+  }
+
+  // Both places taken: the subline changes and `2ND — OPEN` becomes a name.
+  if (state === 'won2') {
+    return {
+      forceReconnecting: false,
+      others: wonRail(true),
+      winners: [
+        { playerId: 'dev-dan', displayName: 'Dan', pattern: 'column' },
+        { playerId: 'dev-jess', displayName: 'Jess', pattern: 'row' },
+      ],
+    };
+  }
+
   if (state === 'dense') {
     // 6x6 with five players — the densest room the design has to survive.
     const size = 6;
@@ -94,6 +118,32 @@ function scatter(total: number, count: number, salt: number): number[] {
     [cells[i], cells[j]] = [cells[j], cells[i]];
   }
   return cells.slice(0, Math.min(count, total));
+}
+
+/**
+ * The four rail players with the win already landed: Dan holds a complete
+ * column 2, and — for `won2` — Jess holds a complete row 1. Nobody is left
+ * unsynced here; an unread board next to a confirmed winner would only muddy
+ * what the gold treatment is saying.
+ */
+function wonRail(jessWins = false): OtherPlayer[] {
+  const base = fakeFive().slice(0, 4).map((p) =>
+    p.synced ? p : { ...p, synced: true, card: fakeCard(5), marks: [1, 5, 9, 13, 16, 18, 20, 23] },
+  );
+  return base.map((p) => {
+    // Column 2 = indices 1, 6, 11, 16, 21 — the column the canvas shows Dan
+    // one away from, now completed.
+    if (p.playerId === 'dev-dan') {
+      return { ...p, marks: [1, 2, 3, 6, 8, 9, 10, 11, 16, 18, 21, 22], won: true, finishPosition: 1 };
+    }
+    // Row 1 = indices 0 through 4.
+    if (p.playerId === 'dev-jess') {
+      return jessWins
+        ? { ...p, marks: [0, 1, 2, 3, 4, 5, 6, 9, 13, 14, 17, 21, 23], won: true, finishPosition: 2 }
+        : p;
+    }
+    return p;
+  });
 }
 
 function fakeCard(boardSize: number): SquareItem[] {
