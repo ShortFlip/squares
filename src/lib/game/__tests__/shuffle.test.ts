@@ -53,6 +53,33 @@ describe('generateCard', () => {
     expect(card.every((s) => s.text && !s.isFreeSpace)).toBe(true);
   });
 
+  it('deals different subsets of a 40-item pool to two rounds', () => {
+    // The whole point of a surplus pool: round 2 is not round 1 reshuffled.
+    const a = generateCard(pool(40), 'round-1-seed', 'player-a', 5, 'full', true);
+    const b = generateCard(pool(40), 'round-2-seed', 'player-a', 5, 'full', true);
+
+    for (const card of [a, b]) {
+      expect(card).toHaveLength(25);
+      expect(card[12].isFreeSpace).toBe(true);
+    }
+
+    const setOf = (card: SquareItem[]) =>
+      new Set(card.filter((s) => !s.isFreeSpace).map((s) => s.text));
+    expect(setOf(a)).not.toEqual(setOf(b));
+  });
+
+  it('draws a full, duplicate-free card from a surplus pool in column mode', () => {
+    const card = generateCard(pool(40), 'seed-1', 'player-a', 5, 'column', true);
+    expect(card).toHaveLength(25);
+    expect(card[12].isFreeSpace).toBe(true);
+
+    const real = card.filter((s) => !s.isFreeSpace);
+    expect(real).toHaveLength(24);
+    // Every square is a real item and no item appears twice.
+    expect(real.every((s) => s.text && s.text.length > 0)).toBe(true);
+    expect(new Set(real.map((s) => s.text)).size).toBe(24);
+  });
+
   it('keeps column-mode items inside their partition', () => {
     // 24 items + free space: partitions are [0..4],[5..9],[10..13],[14..18],[19..23]
     // (the center column needs only 4 because FREE takes a row).

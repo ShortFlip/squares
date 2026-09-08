@@ -84,7 +84,8 @@ export function TemplateList() {
               <div className="flex-1 space-y-1">
                 <p className="font-semibold text-sm truncate">{t.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {t.board_size}×{t.board_size} · {(t.items as unknown[]).length} items ·{' '}
+                  <span className="font-mono">{t.board_size}×{t.board_size}</span> ·{' '}
+                  <span className="font-mono">{(t.items as unknown[]).length}</span> items ·{' '}
                   {t.free_space ? 'Free space' : 'No free space'}
                 </p>
               </div>

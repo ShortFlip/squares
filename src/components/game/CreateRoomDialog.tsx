@@ -205,7 +205,9 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
                     >
                       <p className="text-sm font-medium truncate">{t.name}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {t.board_size}×{t.board_size} · {t.free_space ? 'Free space' : 'No free space'} · {t.shuffle_mode} shuffle
+                        <span className="font-mono">{t.board_size}×{t.board_size}</span> ·{' '}
+                        <span className="font-mono">{(t.items as unknown[]).length}</span> items ·{' '}
+                        {t.free_space ? 'Free space' : 'No free space'} · {t.shuffle_mode} shuffle
                       </p>
                     </button>
                   </li>
