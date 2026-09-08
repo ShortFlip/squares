@@ -37,6 +37,11 @@
 
 ---
 
+**Before writing or changing any interface code — read `DESIGN.md`.**
+If a request conflicts with DESIGN.md, say so before building.
+Part 2 is intentionally incomplete. Do not fill the gap with framework
+defaults; follow its guardrails and ask.
+
 ## Design Direction
 
 ### Aesthetic: "Arcade Lounge"
