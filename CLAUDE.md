@@ -26,8 +26,8 @@
 | Real-time | Supabase Realtime (WebSocket channels) | - |
 | Auth | Supabase Auth (anonymous + optional email/Google) | - |
 | File Storage | Supabase Storage (images) | - |
-| Hosting (dev) | Vercel | - |
-| Hosting (prod) | Docker on Unraid (Sanctuary) behind Cloudflare tunnel | - |
+| Testing | Vitest | 3.x |
+| Hosting | Cloudflare Workers (OpenNext), deployed by GitHub Actions on push to `master` | - |
 
 ### Why these choices
 - Next.js + Supabase: Owner already uses this stack (wardrobe app). No new paradigms to learn.
@@ -86,9 +86,12 @@ Think neon-lit bowling alley meets modern game night — playful but polished. N
 Browser (Player) ←→ Supabase Realtime Channel ←→ Browser (Host)
                           ↕
                     Supabase PostgreSQL
-                          ↕
-                  Edge Functions (win verification)
 ```
+
+No server code runs in the game loop. Win verification is **client-side**: the
+claimant's own tab detects the pattern, claims it, and the claim is broadcast to
+everyone. There is no Edge Function and no server authority over the result.
+That is a deliberate call for a three-friend honor-system game — see "Next Up".
 
 ### Real-time Game Sync
 Each game room subscribes to a Supabase Realtime channel: `room:{roomCode}`.
@@ -116,13 +119,14 @@ Each game room subscribes to a Supabase Realtime channel: `room:{roomCode}`.
 - **Seed-based RNG:** Use a seeded PRNG (e.g., `mulberry32`) so each player's card is reproducible from `(templateId, gameSeed, playerId)` — critical for server-side win verification without storing every card
 
 ### Win Detection
-Check all possible win conditions against the player's marks array:
-- **Row:** Any complete horizontal line
-- **Column:** Any complete vertical line
-- **Diagonal:** Both diagonals (only on square grids)
-- **Four Corners:** All 4 corner squares marked
-- **Blackout:** Every square marked
-- **Custom patterns:** Stored as a boolean grid in game settings
+Runs in the browser on every mark (`src/lib/game/win-detection.ts`). Checks the
+player's marks against each enabled pattern:
+- **Row / Column / Diagonal / Four Corners / Blackout**, plus custom boolean grids
+- `bestLine()` returns the closest incomplete line, which drives the "one away"
+  label, the hot lane on my board, and every rail miniature's status
+
+A detected win auto-claims — there is no BINGO button. The round keeps running
+so second place can still happen.
 
 ---
 
@@ -209,96 +213,91 @@ Check all possible win conditions against the player's marks array:
 squares/
 ├── src/
 │   ├── app/                          # Next.js App Router pages
-│   │   ├── layout.tsx                # Root layout (fonts, theme provider, Supabase provider)
-│   │   ├── page.tsx                  # Landing page — create or join a game
-│   │   ├── create/
-│   │   │   └── page.tsx              # Card template creator/editor
-│   │   ├── room/
-│   │   │   └── [code]/
-│   │   │       ├── page.tsx          # Game room — lobby → playing → results
-│   │   │       └── host/
-│   │   │           └── page.tsx      # Host-only caller panel (can be same page with role check)
-│   │   ├── history/
-│   │   │   └── page.tsx              # Past game nights + drill-down
-│   │   ├── leaderboard/
-│   │   │   └── page.tsx              # All-time stats + rankings
-│   │   └── profile/
-│   │       └── page.tsx              # Player profile + settings
+│   │   ├── layout.tsx                # Root layout (fonts, theme, player provider)
+│   │   ├── globals.css               # Tokens, theme blocks, glass + animation utilities
+│   │   ├── page.tsx                  # Landing — create, join, Rejoin chip
+│   │   ├── create/page.tsx           # Card template creator/editor
+│   │   ├── room/[code]/page.tsx      # Game room — lobby → playing → game over
+│   │   ├── history/page.tsx          # Nights (one per room) + per-round drill-down
+│   │   └── leaderboard/page.tsx      # Co-player rankings
 │   │
 │   ├── components/
 │   │   ├── board/
-│   │   │   ├── BingoBoard.tsx        # Renders the NxN grid — handles marking
-│   │   │   ├── BingoSquare.tsx       # Individual square — text, image, marked state
-│   │   │   ├── BoardEditor.tsx       # Drag-and-drop card template editor
-│   │   │   └── BoardPreview.tsx      # Read-only preview of a card
+│   │   │   ├── BingoBoard.tsx        # The NxN grid — marking, hot lane, called wash
+│   │   │   ├── BingoSquare.tsx       # One square — text, image, marked/called state
+│   │   │   ├── MiniBoard.tsx         # Someone else's board at ~90–108px, glanceable
+│   │   │   ├── BoardEditor.tsx       # Template editor grid + item pool
+│   │   │   ├── BoardPreview.tsx      # Read-only shuffled preview
+│   │   │   └── CardStylePicker.tsx   # Per-template style presets
 │   │   ├── game/
-│   │   │   ├── CallerPanel.tsx       # Host's call interface — call list, next button
-│   │   │   ├── CalledItems.tsx       # Visual history of called items
-│   │   │   ├── PlayerList.tsx        # Connected players + their status
-│   │   │   ├── WinOverlay.tsx        # Confetti + winner announcement
-│   │   │   └── GameLobby.tsx         # Pre-game waiting room
-│   │   ├── layout/
-│   │   │   ├── Header.tsx
-│   │   │   ├── Footer.tsx
-│   │   │   └── RoomCodeDisplay.tsx   # Big, bold room code component
-│   │   └── ui/                       # shadcn/ui components (auto-generated)
+│   │   │   ├── RoomClient.tsx        # Room state machine + all Supabase writes
+│   │   │   ├── GameLobby.tsx         # Pre-game waiting room
+│   │   │   ├── GameView.tsx          # The Scoreboard screen: header, hero board, rail
+│   │   │   ├── RailCard.tsx          # One other player in the rail — mini + progress
+│   │   │   ├── WinBanner.tsx         # In-flow gold win band (never an overlay)
+│   │   │   ├── HostControls.tsx      # New Round / End Night — used by header AND banner
+│   │   │   ├── GameOver.tsx          # Night over — Play Again (host) or waiting copy
+│   │   │   ├── CallerPanel.tsx       # Traditional mode only — call list, next button
+│   │   │   ├── CalledItems.tsx       # Traditional mode only — call history
+│   │   │   ├── PlayerList.tsx        # Lobby roster
+│   │   │   ├── CreateRoomDialog.tsx  # Name + template + settings
+│   │   │   ├── TemplateList.tsx      # Saved templates on the landing page
+│   │   │   ├── DisplayNameDialog.tsx # First-visit name prompt
+│   │   │   ├── PlayerProvider.tsx    # Identity resolution at the app root
+│   │   │   ├── ProfileModal.tsx      # Name, avatar, theme, claim code (no /profile page)
+│   │   │   └── ThemePicker.tsx       # The six app themes
+│   │   ├── layout/RoomCodeDisplay.tsx
+│   │   ├── stats/PlayerStats.tsx
+│   │   └── ui/                       # shadcn/ui primitives + PlayerAvatar
 │   │
 │   ├── lib/
-│   │   ├── supabase/
-│   │   │   ├── client.ts             # Browser Supabase client
-│   │   │   ├── server.ts             # Server-side Supabase client
-│   │   │   ├── middleware.ts         # Auth middleware for protected routes
-│   │   │   └── types.ts             # Generated DB types (supabase gen types)
+│   │   ├── supabase/{client,server,types}.ts
 │   │   ├── game/
-│   │   │   ├── shuffle.ts            # Fisher-Yates + column-locked shuffle
-│   │   │   ├── win-detection.ts      # Check all win patterns against marks
-│   │   │   ├── seed-rng.ts           # Seeded PRNG (mulberry32)
-│   │   │   ├── room-code.ts          # Generate/validate 6-char room codes
-│   │   │   └── call-list.ts          # Generate randomized call order
-│   │   └── utils/
-│   │       ├── cn.ts                 # clsx + tailwind-merge helper
-│   │       ├── browser-id.ts         # localStorage UUID management
-│   │       └── format.ts             # Date, number, duration formatters
+│   │   │   ├── shuffle.ts            # Fisher-Yates + column-locked; draws N² from the pool
+│   │   │   ├── win-detection.ts      # checkWin + bestLine/bestLineLabel
+│   │   │   ├── seed-rng.ts           # Seeded PRNG (mulberry32 behind seededRng)
+│   │   │   ├── room-code.ts          # 6-char codes, unambiguous alphabet
+│   │   │   ├── call-list.ts          # Randomized call order (traditional mode)
+│   │   │   ├── game-setup.ts         # Shared round bootstrap: seed, items, call list
+│   │   │   ├── game-players.ts       # loadGamePlayers — everyone's cards + marks
+│   │   │   ├── import.ts             # parseImport — newlines then commas, dedupe
+│   │   │   └── __tests__/            # Vitest: shuffle, win-detection, call-list, import
+│   │   ├── utils/
+│   │   │   ├── browser-id.ts         # localStorage UUID identity
+│   │   │   ├── last-room.ts          # Remembers the last room for the Rejoin chip
+│   │   │   ├── copy-link.ts          # Guarded clipboard write + toast fallback
+│   │   │   └── player-color.ts       # Deterministic avatar color + initials
+│   │   ├── utils.ts                  # cn() — clsx + tailwind-merge
+│   │   ├── theme.ts                  # The six app themes
+│   │   ├── card-styles.ts            # Card style presets
+│   │   ├── sound.ts                  # Web Audio synthesis — no audio files
+│   │   ├── win-confetti.ts           # The two-cannon burst and the second-place burst
+│   │   ├── achievements.ts           # Badges derived from stats
+│   │   └── dev-state.ts              # `?state=` harness, DEV-only, stripped from prod
 │   │
-│   ├── stores/
-│   │   ├── gameStore.ts              # Zustand — live game state (calls, marks, players)
-│   │   ├── editorStore.ts            # Zustand — card editor state
-│   │   └── playerStore.ts            # Zustand — current player identity + prefs
-│   │
-│   ├── hooks/
-│   │   ├── useRealtimeRoom.ts        # Subscribe to room channel, dispatch events
-│   │   ├── useGameState.ts           # Derived game state (is it my turn, have I won, etc.)
-│   │   └── usePlayer.ts             # Current player identity resolution
-│   │
-│   └── types/
-│       ├── game.ts                   # Game, Room, Round types
-│       ├── card.ts                   # CardTemplate, Square, Styles types
-│       └── player.ts                 # Player, Stats types
+│   ├── stores/                       # Zustand: gameStore, editorStore, playerStore
+│   ├── hooks/                        # useRealtimeRoom, useGameState, usePlayer
+│   └── types/                        # game.ts, card.ts, player.ts
 │
-├── supabase/
-│   ├── migrations/
-│   │   └── 001_initial_schema.sql    # Full schema from above
-│   ├── functions/
-│   │   └── verify-bingo/
-│   │       └── index.ts              # Edge Function — server-side win verification
-│   └── seed.sql                      # Optional dev seed data
-│
-├── public/
-│   ├── sounds/                       # Dab sound, call chime, winner fanfare
-│   └── patterns/                     # Default win pattern SVGs
-│
-├── docker/
-│   ├── Dockerfile                    # Production build for Sanctuary
-│   └── docker-compose.yml            # Next.js + optional local Supabase
-│
+├── supabase/migrations/              # 0001 schema → RLS fixes → avatars →
+│                                     # enable_realtime → claim_codes
+├── .design/                          # UPGRADE-PLAN.md, mockups/SPEC.md, refs (gitignored)
+├── .github/workflows/deploy.yml      # Build + deploy to Cloudflare Workers on push to master
+├── public/                           # Static SVGs only — sounds are synthesized
 ├── CLAUDE.md                         # ← You are here
-├── package.json
-├── tailwind.config.ts
+├── DESIGN.md                         # Design intent; Part 1 binding
+├── vitest.config.ts
+├── next.config.ts
+├── open-next.config.ts
+├── wrangler.toml
 ├── tsconfig.json
-├── next.config.js
-├── .env.local.example                # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY
+├── components.json
 └── README.md
 ```
+
+Styling is Tailwind v4 — the theme lives in `globals.css` (`@theme inline`), so
+there is no `tailwind.config.ts`. The `game_nights` table exists in the schema
+but is unused: a **night is a room**, and `/history` groups by room.
 
 ---
 
@@ -527,38 +526,24 @@ Return first matching pattern or null
 
 ---
 
-## Docker (Sanctuary Deployment)
+## Deployment
 
-```dockerfile
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-FROM node:20-alpine AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
-EXPOSE 3000
-CMD ["node", "server.js"]
-```
-
-Next.js config needs `output: 'standalone'` for Docker.
-
-Cloudflare tunnel: `squares.shortflip.org` → `localhost:3000` on Sanctuary.
+Push to `master` and `.github/workflows/deploy.yml` runs `npm run cf:deploy`
+(OpenNext build → `wrangler deploy`) onto **Cloudflare Workers**. The
+`NEXT_PUBLIC_*` Supabase values are repo secrets, baked in at build time. There
+is no Docker image and nothing runs on Sanctuary — the plan to self-host behind
+a Cloudflare tunnel was dropped in favour of Workers.
 
 ---
 
-## Testing Strategy (Future)
+## Testing Strategy
 
-- **Unit tests:** Win detection, shuffle algorithm, room code generation (Vitest)
-- **Component tests:** Board rendering, square marking, caller panel (React Testing Library)
-- **E2E:** Full game flow — create room, join, play, win (Playwright)
-- Not required for Phase 1 MVP — add in Phase 3+
+- **Unit tests (in place):** `npm test` runs Vitest over card generation and
+  shuffling, win detection and `bestLine`, the call list, and the import parser.
+- **Live gates (in place, not in CI):** each phase is proved against two real
+  browser contexts via `.playwright-mcp/pw.cjs` (a CDP driver) pointed at the dev
+  server, printing `GATE <name>: PASS/FAIL` lines.
+- **Not done:** component tests, and a scripted end-to-end run in CI.
 
 ---
 
@@ -567,4 +552,36 @@ Cloudflare tunnel: `squares.shortflip.org` → `localhost:3000` on Sanctuary.
 - The name "Squares" is a working title and may change. It's only referenced in `package.json` `name` field, the root layout `<title>`, and any logo/branding components.
 - This is a personal project for 3-5 friends. No need for rate limiting, abuse prevention, or enterprise features in MVP.
 - Sound effects and confetti are non-negotiable. They make the game.
-- Mobile experience matters — most players will be on phones during game night.
+- **Desktop only.** Squares lives on a second monitor beside Discord while the
+  main monitor is playing something else. Assume ~1280×800 minimum. No mobile work.
+
+---
+
+## Version history
+
+| PR | Shipped | What landed |
+|---|---|---|
+| #7 | 2026-09-08 | Rejoin + connection truth. Vitest; `useRealtimeRoom` handles every channel status with resubscribe backoff and a `connection` state; everyone's cards and marks load from `game_players` into an `others` store slice; landing Rejoin chip. |
+| #8 | 2026-09-08 | The Scoreboard game screen. Glass header with the room code and Copy link, a 608px hero board with the hot lane, a 300px rail of live miniatures, `bestLine`/`bestLineLabel`, the amber reconnecting bar, the SYNCING rail state, `--gold` in every theme, and the DEV-only `?state=` harness. |
+| #9 | 2026-09-08 | The bingo moment. `WinOverlay` retired for an in-flow gold `WinBanner`; the hero grid shrinks 608→520 and stays markable; per-winner fanfare and two-cannon confetti; gold rail cards with `1ST`/`2ND` pills and a gold winning line. |
+| #10 | 2026-09-08 | The item pool. A template holds more items than squares, so every round draws a fresh subset per player; `parseImport` splits newlines then commas and dedupes; count line and Save gate replace the old filled-squares widget. |
+| #11 | 2026-09-08 | Identity and aftermath. `players.claim_code` re-points a new PC at an existing player; `/history` groups rounds into nights with cancelled rounds shown as `No winner`; `/leaderboard` scoped to co-players with cancelled rounds excluded. |
+| #12 (this PR) | 2026-09-08 | Host controls and docs. `HostControls` moves into the game header so a round nobody wins is no longer a dead end; End Night cancels a winnerless final round so it never reaches the leaderboard; `isConnected` and other dead exports removed; CLAUDE.md and DESIGN.md brought back to reality. |
+
+## Next Up
+
+Known gaps, deliberate or otherwise. None of these block a game night.
+
+- **Reconnect backoff has never met a real dropped socket.** The
+  `CHANNEL_ERROR`/`TIMED_OUT`/`CLOSED` path and its 1–2–4–8s backoff were
+  exercised only through the `?state=reconnecting` harness.
+- **RLS is wide open and win verification is client-side.** Insert and update
+  are `true` for every game table, and a win is whatever the claimant's browser
+  says it is. Deliberate — three friends on a voice call, no adversary. It is
+  also the one thing that must change before anyone else is invited in.
+- **Traditional caller mode was restyled, not redesigned.** `CallerPanel` and
+  `CalledItems` were dropped into rail glass cards and left alone. Honor-system
+  play is the real mode.
+- **The light theme's glass inversion has never been reviewed on a real game
+  screen.** Latte was checked on the landing page only; the header, banner and
+  rail all assume white-on-dark translucency.

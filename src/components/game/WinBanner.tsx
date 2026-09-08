@@ -1,6 +1,7 @@
 'use client';
 
 import { Trophy } from 'lucide-react';
+import { HostControls } from './HostControls';
 import { cn } from '@/lib/utils';
 import type { GameWinner } from '@/stores/gameStore';
 
@@ -104,24 +105,7 @@ export function WinBanner({
 
         {/* Only the host can move the night along, so only the host sees the
             controls — everyone else gets no dead buttons to wonder about. */}
-        {isHost && (
-          <>
-            <button
-              type="button"
-              onClick={onNewRound}
-              className="rounded-md px-3 py-1.5 text-[12px] font-semibold text-foreground/85 border border-white/12 hover:bg-white/8 hover:text-foreground transition-colors duration-150"
-            >
-              New Round
-            </button>
-            <button
-              type="button"
-              onClick={onEndGame}
-              className="rounded-md px-3 py-1.5 text-[12px] font-semibold text-muted-foreground border border-white/12 hover:bg-white/8 hover:text-foreground transition-colors duration-150"
-            >
-              End Night
-            </button>
-          </>
-        )}
+        {isHost && <HostControls onNewRound={onNewRound} onEndGame={onEndGame} />}
       </div>
     </div>
   );

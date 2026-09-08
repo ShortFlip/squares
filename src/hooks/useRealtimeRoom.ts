@@ -285,8 +285,6 @@ export function useRealtimeRoom(
   return {
     presentPlayers,
     connection,
-    // Kept until Phase 2 rebuilds the surfaces that read it (lobby Live pill).
-    isConnected: connection === 'live',
     broadcast,
   };
 }

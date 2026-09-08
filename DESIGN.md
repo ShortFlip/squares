@@ -133,10 +133,11 @@ requirements, not polish.
 
 ## Part 2 — Visual
 
-**Status: stubbed with guardrails.** Fill only from real references, not
-defaults. The palette and fonts in CLAUDE.md ("Arcade Lounge") stand and the
-first polish pass (glow pulse, caller flip, noise grain) is in. What follows
-is the direction for the upgrade.
+**Status: specified.** The guardrails below were written first and still bind;
+"Specified by the build" further down records what the upgrade (PRs #7-#12)
+actually settled, and is the reference for anything added next. The palette and
+fonts in CLAUDE.md ("Arcade Lounge") stand. Anything still not covered gets
+asked about, not filled in with a framework default.
 
 ### Direction in his words
 
@@ -181,20 +182,115 @@ links need a logged-in Mobbin session; the local files do not.
 
 ### Mockups
 
-Approved game-screen mockups (Scoreboard, Arena for comparison, Bingo
-Moment) live on the design canvas:
+The approved game-screen mockups — Scoreboard, Arena (kept for comparison) and
+Bingo Moment — were built from the real globals.css tokens. The durable copy
+lives in **`.design/mockups/`**: the artboards themselves plus `SPEC.md`, the
+extracted geometry, copy and colour that the build was scored against. That
+folder is the reference to read; the canvas is the same work, live and
+subject to disappearing:
 https://claude.ai/code/artifact/0fd2c5cf-42bb-4202-bfe9-ed36ee460cbb
-Built from the real globals.css tokens; the build should match them.
 
-### Still to specify
+### Specified by the build (2026-09-08)
 
-- Type scale (display sizes for code, names, banner)
-- Radius language (squares vs panels vs pills)
-- Theme set: names and the three colors each one swaps
-- The bingo sequence, beat by beat (sound, banner, confetti, gold miniature,
-  settle)
-- The miniature board's visual language at ~120px wide
-- Reconnecting and syncing indicators
+These were open questions when Part 2 was written. They are now answered by
+what shipped in PRs #7–#12 — this section describes the app as built, and is
+the reference for anything added next.
+
+**Type scale.** Three families, each with a job.
+
+| Role | Face | Size |
+|---|---|---|
+| Win headline | Display, 800 | 38 |
+| Player name (hero) | Display, 700 | 20 |
+| Wordmark, rail and panel labels | Display, 700–800 | 13–15 |
+| Room code | Mono, 700, `0.14em` | 26 |
+| My score `N / 25` | Mono, 700 | 15 |
+| Rail score `N / 25` | Mono, 700 | 13 |
+| Pills — `LIVE`, `YOUR BOARD`, `1ST`, `SYNCING`, `RECONNECTING` | Mono, 700, `0.10em`, uppercase | 10–12 |
+| Body, status lines, buttons | Body, 500–600 | 11–13 |
+
+Square text is 12, dropping to 11 when the win banner is up or the board is
+6×6. Every number a player compares against another number is monospace, so
+digits line up down the rail.
+
+**Radius language.** Radius encodes size, not decoration.
+
+| Radius | Where |
+|---|---|
+| 16 (`rounded-2xl`) | Panels, the rail cards' parent, the win banner |
+| 12 (`rounded-xl`) | Rail cards, the banner's trophy tile |
+| 6 | Board squares, the miniature's frame |
+| 2 | Miniature tiles |
+| 999 (`rounded-full`) | Every pill, and avatars |
+
+Buttons stay at 6 (`rounded-md`), which puts them in the same family as a
+board square rather than as a panel.
+
+**Theme set.** Six, all in `src/lib/theme.ts`, all palette-only — no theme
+changes a layout, a size or a radius. Each swaps the ground, and each carries
+its own gold so the win moment reads as metal against that particular ground.
+
+| Theme | Ground | Accent (primary) | Gold |
+|---|---|---|---|
+| Midnight (default) | `oklch(0.18 0.016 275)` blue-charcoal | Violet `oklch(0.62 0.26 278)` | `oklch(0.82 0.16 88)` |
+| Obsidian | `oklch(0.085 0.01 275)` near-black | Violet (inherited) | `oklch(0.84 0.16 88)` |
+| Forest | `oklch(0.15 0.03 152)` | Emerald `oklch(0.65 0.22 152)` | `oklch(0.83 0.15 92)` warmer, to clear the emerald |
+| Ocean | `oklch(0.15 0.03 220)` | Sky `oklch(0.65 0.18 210)` | `oklch(0.84 0.15 90)` |
+| Crimson | `oklch(0.15 0.03 18)` | Violet (inherited) | `oklch(0.85 0.15 95)` pushed yellow, to clear the red ground |
+| Latte (light) | `oklch(0.96 0.012 80)` cream | Violet `oklch(0.52 0.26 278)` | `oklch(0.60 0.14 82)` darkened to survive on cream |
+
+Amber stays fixed at `oklch(0.77 0.175 70)` in every theme: a marked square
+must mean the same thing everywhere. Card style presets are a separate axis
+and do not follow the app theme.
+
+**The bingo sequence, beat by beat.** One loud moment, roughly two seconds.
+
+1. `playBingo()` — the fanfare fires first, because it is what pulls a head
+   away from the other monitor.
+2. The banner slides down from the top of the body over **300 ms**, in flow
+   between the header and the board — never over it. The hero grid transitions
+   608 → 520 px and the miniatures 108 → 90 px in the same 300 ms, so the
+   banner takes its space from the layout rather than covering it.
+3. Two confetti cannons fire from the top corners for **1.5 s** — violet,
+   amber, gold, pink.
+4. The winner's rail card turns gold: gold border and glow, a mono `1ST`
+   beside the name, gold progress fill, and the miniature outlines the winning
+   line in gold instead of emerald.
+
+The board stays interactive the whole time. A **second winner** is a quieter
+echo of the same shape: the fanfare again, a single centre burst, a `2ND` pill,
+gold on their card; the banner's headline stays with the first winner and only
+the `2ND — OPEN` pill fills in.
+
+**Reduced motion:** the banner simply appears — no slide, no confetti. The
+fanfare still plays; a sound is not motion. Nothing else is cancelled.
+
+**The miniature board.** Someone else's whole board, readable without a click.
+20 px tiles at the 108 px default, 16.4 px at the 90 px size the win banner
+forces; 2 px gaps, 6 px frame padding, radius 6 on the frame and 2 on a tile.
+
+| Tile | Meaning |
+|---|---|
+| Amber fill + glow | Marked |
+| Violet fill | Free space |
+| Emerald 1 px outline | On their best line |
+| Gold 1 px outline | The line that won it |
+
+A rail card pairs the miniature with the name, a mono `N / 25`, a 4 px progress
+bar (emerald when they are one away, amber otherwise) and the same best-line
+sentence my own board uses: `Row 3 — one away`, `Column 2 — two away`,
+`No line yet`, `Bingo — column 2`.
+
+**Reconnecting and syncing.** Both are ambient; neither takes a click or
+covers the board.
+
+- **Reconnecting.** The `LIVE` pill is replaced by a 3 px amber bar spanning
+  the full width under the header, glowing, with a mono `RECONNECTING` at the
+  right edge. The board stays markable and catches up when the channel returns.
+- **Syncing.** A player whose marks have not arrived renders their miniature at
+  45 % opacity with a mono `SYNCING` pill where the score goes — never `0 / 25`,
+  which would be a lie about someone's board. They also sort to the bottom of
+  the rail: an unknown board must not outrank a known one.
 
 ---
 

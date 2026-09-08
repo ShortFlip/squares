@@ -9,14 +9,14 @@ import { createClient } from '@/lib/supabase/client';
 import { buildGameSetup } from '@/lib/game/game-setup';
 import { Button } from '@/components/ui/button';
 import type { Room, WinPattern, GameMode } from '@/types/game';
-import type { PresencePlayer } from '@/hooks/useRealtimeRoom';
+import type { PresencePlayer, ConnectionState } from '@/hooks/useRealtimeRoom';
 import type { CardStyles } from '@/types/card';
 
 interface GameLobbyProps {
   room: Room;
   currentPlayerId: string;
   presentPlayers: PresencePlayer[];
-  isConnected: boolean;
+  connection: ConnectionState;
   onStartGame: (payload: {
     gameId: string;
     seed: string;
@@ -36,7 +36,7 @@ export function GameLobby({
   room,
   currentPlayerId,
   presentPlayers,
-  isConnected,
+  connection,
   onStartGame,
 }: GameLobbyProps) {
   const [isStarting, setIsStarting] = useState(false);
@@ -122,8 +122,8 @@ export function GameLobby({
         {/* Connection dot */}
         <div className="flex justify-center">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success animate-pulse' : 'bg-muted-foreground'}`} />
-            {isConnected ? 'Connected' : 'Connecting…'}
+            <span className={`w-2 h-2 rounded-full ${connection === 'live' ? 'bg-success animate-pulse' : 'bg-muted-foreground'}`} />
+            {connection === 'live' ? 'Connected' : 'Connecting…'}
           </div>
         </div>
 

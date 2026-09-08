@@ -25,7 +25,7 @@ interface RoomClientProps {
 export function RoomClient({ initialRoom }: RoomClientProps) {
   const router = useRouter();
   const { player, isLoading } = usePlayer();
-  const { presentPlayers, isConnected, connection, broadcast } = useRealtimeRoom(
+  const { presentPlayers, connection, broadcast } = useRealtimeRoom(
     initialRoom.join_code,
     initialRoom.id,
     player,
@@ -388,6 +388,17 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     if (!player) return;
     try {
       const supabase = createClient();
+
+      // Same close-out handleNewRound performs: a final round that nobody won
+      // must not linger as 'active', or the leaderboard counts a round that was
+      // simply abandoned when the night ended.
+      const { gameId: prevGameId, winners: prevWinners } = useGameStore.getState();
+      if (prevGameId && prevWinners.length === 0) {
+        await supabase.from('games')
+          .update({ status: 'cancelled', ended_at: new Date().toISOString() })
+          .eq('id', prevGameId);
+      }
+
       const { error } = await supabase
         .from('rooms')
         .update({ status: 'finished' })
@@ -434,7 +445,7 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
           room={initialRoom}
           currentPlayerId={player.id}
           presentPlayers={presentPlayers}
-          isConnected={isConnected}
+          connection={connection}
           onStartGame={handleStartGame}
         />
       );
