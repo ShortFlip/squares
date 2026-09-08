@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local Playwright driver scripts (gitignored, CommonJS by necessity).
+    ".playwright-mcp/**",
   ]),
 ]);
 

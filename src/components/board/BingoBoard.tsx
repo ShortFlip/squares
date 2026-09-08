@@ -28,6 +28,15 @@ interface BingoBoardProps {
   markedIndices?: Set<number>;
   calledIndices?: Set<number>;
   onMarkSquare?: (gridIndex: number) => void;
+  /** Grid gap utility. The game screen runs an 8px gap; editors stay at 4px. */
+  gapClass?: string;
+  /** Extra classes for every square — lets a caller set radius and text size. */
+  squareClassName?: string;
+  /**
+   * The unmarked cells of the player's best line. They get a flat amber wash
+   * so the line you are closest to reads from across the room.
+   */
+  laneIndices?: Set<number>;
 }
 
 export function BingoBoard({
@@ -44,6 +53,9 @@ export function BingoBoard({
   markedIndices,
   calledIndices,
   onMarkSquare,
+  gapClass = 'gap-1',
+  squareClassName,
+  laneIndices,
 }: BingoBoardProps) {
   const total = boardSize * boardSize;
   // The center cell is the FREE SPACE (only on square grids, which we always have)
@@ -54,13 +66,18 @@ export function BingoBoard({
     <div
       style={{ backgroundColor: styles?.cardBg }}
       className={cn(
-        '@container grid gap-1 w-full',
+        '@container grid w-full',
+        gapClass,
         GRID_COLS[boardSize] ?? 'grid-cols-5',
         className,
       )}
     >
       {Array.from({ length: total }, (_, gridIndex) => {
-        const isFreeSpace = freeSpace && gridIndex === centerIndex;
+        // Two ways a cell can be the free space: positionally (editor and
+        // preview, which pass a plain item list) or because the generated card
+        // already carries the flag (the game, whose card includes the item).
+        const isFreeSpace =
+          (freeSpace && gridIndex === centerIndex) || items[gridIndex]?.isFreeSpace === true;
 
         // Map grid position → items array index, skipping center when freeSpace is on
         // e.g. 5x5 with freeSpace: grid[0-11]→items[0-11], grid[12]=FREE, grid[13-24]→items[12-23]
@@ -88,6 +105,7 @@ export function BingoBoard({
               isMarked={markedIndices?.has(gridIndex) ?? false}
               isCalled={calledIndices?.has(gridIndex) ?? false}
               onMark={() => onMarkSquare?.(gridIndex)}
+              className={cn(squareClassName, laneIndices?.has(gridIndex) && 'lane')}
             />
           </div>
         );

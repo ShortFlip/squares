@@ -19,6 +19,8 @@ interface BingoSquareProps {
   isMarked?: boolean;
   isCalled?: boolean;
   onMark?: () => void;
+  /** Per-board overrides (radius, text size, hot-lane wash). Merged last. */
+  className?: string;
 }
 
 export function BingoSquare({
@@ -33,6 +35,7 @@ export function BingoSquare({
   isMarked = false,
   isCalled = false,
   onMark,
+  className,
 }: BingoSquareProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -75,6 +78,7 @@ export function BingoSquare({
           // Only use the violet bloom treatment when no custom override
           !styles?.squareBgFree && 'sq-free bg-primary/15',
           'select-none',
+          className,
         )}
       >
         <span
@@ -96,7 +100,7 @@ export function BingoSquare({
       return (
         <div
           style={baseInlineStyle}
-          className={cn(base, 'bg-card ring-2 ring-primary p-0')}
+          className={cn(base, 'bg-card ring-2 ring-primary p-0', className)}
         >
           <input
             ref={inputRef}
@@ -130,6 +134,7 @@ export function BingoSquare({
           'cursor-pointer active:scale-95',
           !hasCustomColors && 'hover:bg-primary/10 hover:ring-1 hover:ring-primary/50',
           item.text ? 'text-foreground' : 'text-muted-foreground/25',
+          className,
         )}
         title="Click to edit"
       >
@@ -177,6 +182,7 @@ export function BingoSquare({
           ],
           !hasCustomColors && isCalled && !isMarked && 'bg-primary/10 text-foreground',
           !hasCustomColors && !isMarked && !isCalled && 'hover:bg-primary/5',
+          className,
         )}
       >
         <span className="break-words line-clamp-3">{item.text}</span>
@@ -191,7 +197,7 @@ export function BingoSquare({
         ...baseInlineStyle,
         backgroundColor: styles?.squareBg,
       }}
-      className={cn(base, !styles?.squareBg && 'bg-card/40', 'select-none')}
+      className={cn(base, !styles?.squareBg && 'bg-card/40', 'select-none', className)}
     >
       <span className="break-words line-clamp-3">{item.text}</span>
     </div>

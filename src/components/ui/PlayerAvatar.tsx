@@ -17,6 +17,8 @@ interface PlayerAvatarProps {
   displayName: string;
   avatarUrl?: string | null;
   size?: keyof typeof SIZE_CLASSES;
+  /** Override the derived initials — the game screen uses a single letter. */
+  initials?: string;
   className?: string;
 }
 
@@ -25,6 +27,7 @@ export function PlayerAvatar({
   displayName,
   avatarUrl,
   size = 'md',
+  initials,
   className,
 }: PlayerAvatarProps) {
   const sizeClass = SIZE_CLASSES[size];
@@ -53,7 +56,7 @@ export function PlayerAvatar({
       )}
       style={{ background: playerColor(playerId) }}
     >
-      {getInitials(displayName)}
+      {initials ?? getInitials(displayName)}
     </div>
   );
 }

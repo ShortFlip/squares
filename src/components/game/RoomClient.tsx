@@ -25,7 +25,7 @@ interface RoomClientProps {
 export function RoomClient({ initialRoom }: RoomClientProps) {
   const router = useRouter();
   const { player, isLoading } = usePlayer();
-  const { presentPlayers, isConnected, broadcast } = useRealtimeRoom(
+  const { presentPlayers, isConnected, connection, broadcast } = useRealtimeRoom(
     initialRoom.join_code,
     initialRoom.id,
     player,
@@ -445,6 +445,7 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
           room={initialRoom}
           currentPlayerId={player.id}
           presentPlayers={presentPlayers}
+          connection={connection}
           onMarkSquare={handleMarkSquare}
           onBingoClaim={handleBingoClaim}
           onNewRound={handleNewRound}
