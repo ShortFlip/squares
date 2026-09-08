@@ -12,6 +12,8 @@ import { useGameStore } from '@/stores/gameStore';
 import { createClient } from '@/lib/supabase/client';
 import { generateCard } from '@/lib/game/shuffle';
 import { buildGameSetup } from '@/lib/game/game-setup';
+import { loadGamePlayers } from '@/lib/game/game-players';
+import { saveLastRoom, clearLastRoom } from '@/lib/utils/last-room';
 import { checkWin } from '@/lib/game/win-detection';
 import type { Room, WinPattern, GameMode } from '@/types/game';
 import type { SquareItem, CardStyles } from '@/types/card';
@@ -23,7 +25,7 @@ interface RoomClientProps {
 export function RoomClient({ initialRoom }: RoomClientProps) {
   const router = useRouter();
   const { player, isLoading } = usePlayer();
-  const { presentPlayers, isConnected, playerMarks, broadcast } = useRealtimeRoom(
+  const { presentPlayers, isConnected, broadcast } = useRealtimeRoom(
     initialRoom.join_code,
     initialRoom.id,
     player,
@@ -31,6 +33,34 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     () => router.refresh(),
   );
   const { gameId } = useGameStore();
+
+  // DEV-only handle so the store can be inspected from Playwright during
+  // verification. Stripped from production builds by the NODE_ENV check.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      (window as unknown as { __squares?: unknown }).__squares = useGameStore;
+    }
+  }, []);
+
+  // Remember this room for the landing page's Rejoin chip, and forget it once
+  // the night is over. DESIGN.md: "Never make me type a room code I was
+  // already in."
+  useEffect(() => {
+    if (initialRoom.status === 'finished') {
+      clearLastRoom();
+    } else {
+      saveLastRoom(initialRoom.join_code, initialRoom.name);
+    }
+  }, [initialRoom.status, initialRoom.join_code, initialRoom.name]);
+
+  // Everyone else's boards come from the database, not from broadcasts we may
+  // have missed. Re-read them whenever the round changes or we land on a room
+  // that is already in progress. (The hook also re-reads on every regained
+  // SUBSCRIBED and right after the game_started upsert.)
+  useEffect(() => {
+    if (initialRoom.status !== 'playing' || !gameId || !player) return;
+    loadGamePlayers(createClient(), gameId, player.id);
+  }, [initialRoom.status, gameId, player?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debounce timer for persisting marks to game_players — marks change on every
   // tap, but the DB only needs the latest snapshot (used for reconnect restore).
@@ -415,7 +445,6 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
           room={initialRoom}
           currentPlayerId={player.id}
           presentPlayers={presentPlayers}
-          playerMarks={playerMarks}
           onMarkSquare={handleMarkSquare}
           onBingoClaim={handleBingoClaim}
           onNewRound={handleNewRound}
