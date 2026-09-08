@@ -166,6 +166,10 @@ moment when someone hits bingo.
 
 ### References that fit (Mobbin, 2026-09-07)
 
+Local copies in `.design/refs/` (gitignored): `canva-lobby.webp`,
+`suno-rail.webp`, `neon-snake-board.webp`, `codecademy-win.webp`. The Mobbin
+links need a logged-in Mobbin session; the local files do not.
+
 - [Canva Live](https://mobbin.com/screens/cfe8b2c6-9b1a-4cf7-bb9b-ce4917a10d2e): the giant join code with "visit X and enter code" as the whole
   screen. That is the lobby.
 - [Suno Radio](https://mobbin.com/screens/72ebb179-c187-41e5-9caf-0eb6f7567c9e): glass panels over a vivid blurred backdrop, live activity in a
