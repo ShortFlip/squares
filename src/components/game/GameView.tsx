@@ -8,6 +8,7 @@ import { HostControls } from './HostControls';
 import { CallerPanel } from './CallerPanel';
 import { CalledItems } from './CalledItems';
 import { RailCard } from './RailCard';
+import { GameSkeleton } from './GameSkeleton';
 import { useGameStore, type OtherPlayer } from '@/stores/gameStore';
 import { useGameState } from '@/hooks/useGameState';
 import { usePlayer } from '@/hooks/usePlayer';
@@ -18,16 +19,12 @@ import { playerColor, getInitials } from '@/lib/utils/player-color';
 import { playMark, playRoundStart, playBingo, isMuted, toggleMute } from '@/lib/sound';
 import { fireWinConfetti, fireSecondPlaceConfetti } from '@/lib/win-confetti';
 import { cn } from '@/lib/utils';
+import {
+  HEADER_H, NAME_ROW_H, PANEL_GAP, PANEL_PAD_X, PANEL_PAD_Y, heroGridSize,
+} from '@/lib/hero-fit';
 import type { Room } from '@/types/game';
 import type { PresencePlayer } from '@/hooks/useRealtimeRoom';
 
-/** Header height. The body is sized against it, so it lives in one place. */
-const HEADER_H = 56;
-/** The hero grid is a fixed 608px at every board size — the board never shrinks. */
-const GRID_W = 608;
-/** While the win banner is up the grid gives back 88px so the banner can fit
- *  without the board leaving the window. Rows fall out of aspect-square. */
-const GRID_W_WON = 520;
 
 /** Fallback line names, for when the winner's marks have not reached us. */
 const PATTERN_NAMES: Record<string, string> = {
@@ -213,8 +210,10 @@ export function GameView({
   }, [winners, currentPlayerId, marks, rail, size, free]);
 
   // While the banner is up everything else gives ground: the grid, the panel,
-  // the rail gap and the miniatures.
-  const gridW = hasWinners ? GRID_W_WON : GRID_W;
+  // the rail gap and the miniatures. The grid is also held inside whatever
+  // space the window leaves it (see hero-fit.ts), so a short or half-width
+  // window still shows every row.
+  const gridW = heroGridSize(hasWinners);
 
   function handleMark(gridIndex: number) {
     if (!canMark(gridIndex)) return; // blocks free space; in traditional mode, uncalled squares too
@@ -225,12 +224,10 @@ export function GameView({
     onMarkSquare(newMarks);
   }
 
+  // The card is still being restored or generated. The skeleton shares this
+  // screen's geometry, so the real board appears exactly where its outline was.
   if (!dev?.card && (!gameId || myCard.length === 0)) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Setting up your card…</p>
-      </div>
-    );
+    return <GameSkeleton joinCode={room.join_code} boardSize={size} />;
   }
 
   const displayName = player?.display_name ?? 'You';
@@ -261,7 +258,7 @@ export function GameView({
             className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors duration-150"
           >
             <LinkIcon className="w-[13px] h-[13px]" strokeWidth={1.75} />
-            Copy link
+            Copy Link
           </button>
         </div>
 
@@ -344,17 +341,23 @@ export function GameView({
       >
 
         {/* Hero: my board, the primary verb, the biggest thing on screen.
-            The panel hugs the fixed grid (grid + 20px padding either side)
-            rather than stretching, and is centered in the space left of the
-            rail — a stretched panel leaves the board floating off-center. */}
-        <div className="flex-1 min-w-0 flex justify-center">
+            The panel hugs the grid (grid + 20px padding either side) rather
+            than stretching, and is centered in the space left of the rail — a
+            stretched panel leaves the board floating off-center. The column
+            is the size container the grid is fitted against (hero-fit.ts).
+            The panel's padding, gap and name-row height come from the same
+            constants as that formula, so the two cannot drift apart. */}
+        <div className="hero-fit flex-1 min-w-0 flex justify-center">
         <section
-          className="glass w-fit flex flex-col items-center gap-[14px] px-5 py-[18px] rounded-2xl overflow-hidden"
-          style={hasWinners ? { minHeight: 606 } : undefined}
+          // self-start: the column stretches to the window's full height (it is
+          // the size container), but the panel must hug the grid — on a tall
+          // half-width window a stretched panel leaves empty glass under the board.
+          className="glass w-fit self-start flex flex-col items-center rounded-2xl overflow-hidden"
+          style={{ padding: `${PANEL_PAD_Y}px ${PANEL_PAD_X}px`, gap: PANEL_GAP }}
         >
           <div
             className="flex items-center justify-between gap-3 transition-[width] duration-300 ease-out"
-            style={{ width: gridW }}
+            style={{ width: gridW, height: NAME_ROW_H }}
           >
             <div className="flex items-center gap-2.5 min-w-0">
               <span
@@ -417,9 +420,16 @@ export function GameView({
               laneIndices={laneIndices}
               onMarkSquare={handleMark}
               gapClass="gap-2"
+              // 12px (11px under the banner or on 6×6) is the design size and
+              // holds down to ~92px squares — every 5×5 layout at 1280×670 and
+              // up. Only a smaller fitted grid eases the text toward 10px, so
+              // three lines still fit inside the square instead of clipping.
+              // cqw is the square's own width: each cell is an @container.
               squareClassName={cn(
                 'rounded-[6px] font-medium',
-                hasWinners || size >= 6 ? 'text-[11px]' : 'text-[12px]',
+                hasWinners || size >= 6
+                  ? 'text-[clamp(10px,12cqw,11px)]'
+                  : 'text-[clamp(10px,13cqw,12px)]',
               )}
             />
           </div>
