@@ -2,14 +2,9 @@
 
 > A real-time multiplayer bingo platform for small friend groups.
 
----
-
-## Project Overview
-
 **Squares** is a web-hosted, real-time multiplayer bingo app. A host creates a custom bingo card template, starts a game room, and friends join via a short room code. The host calls items from a caller panel, players mark squares on their synced boards, and the system detects/verifies wins. Game history, leaderboards, and stats persist across sessions — no account required (but optionally supported).
 
 **Target audience:** 3-5 friends playing recurring bingo nights.
-**Working title:** "Squares" (may be renamed — name is only referenced in `package.json`, `<title>`, and the logo component).
 
 ---
 
@@ -17,23 +12,19 @@
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Framework | Next.js (App Router) | 14+ |
+| Framework | Next.js (App Router) | 16.x — read `AGENTS.md` first |
 | Language | TypeScript | 5.x |
-| Styling | Tailwind CSS | 3.x |
+| Styling | Tailwind CSS | 4.x |
 | UI Components | shadcn/ui | latest |
-| State Management | Zustand | 4.x |
+| State Management | Zustand | 5.x |
 | Database | Supabase (PostgreSQL) | - |
 | Real-time | Supabase Realtime (WebSocket channels) | - |
-| Auth | Supabase Auth (anonymous + optional email/Google) | - |
+| Auth | Supabase Auth (anonymous; email/Google not built) | - |
 | File Storage | Supabase Storage (images) | - |
 | Testing | Vitest | 3.x |
 | Hosting | Cloudflare Workers (OpenNext), deployed by GitHub Actions on push to `master` | - |
 
-### Why these choices
-- Next.js + Supabase: Owner already uses this stack (wardrobe app). No new paradigms to learn.
-- Supabase Realtime: WebSocket channels for live game sync without a custom socket server.
-- Zustand: Lightweight game state without Redux ceremony.
-- shadcn/ui: Copy-paste components, fully customizable, dark mode built-in.
+Versions follow `package.json`; the reasons for the stack are in the decision index below.
 
 ---
 
@@ -95,115 +86,32 @@ That is a deliberate call for a three-friend honor-system game — see "Next Up"
 
 ### Real-time Game Sync
 Each game room subscribes to a Supabase Realtime channel: `room:{roomCode}`.
+Broadcasts are sent from `RoomClient.tsx` and received in `useRealtimeRoom`:
+`game_started`, `item_called`, `mark_updated`, `bingo_confirmed` (sent by the
+winner's own tab), `room_closed`. Join/leave is Presence `sync`. A
+`postgres_changes` subscription on `rooms` and `games` replays a missed broadcast.
+The other names in `types/game.ts` (`square_marked`, `bingo_claimed`,
+`round_reset`, `player_joined`/`player_left`) are never sent.
 
-**Broadcast events:**
-- `item_called` — Host calls next item → all players receive it
-- `square_marked` — Player marks a square → host sees it (for verification)
-- `bingo_claimed` — Player claims bingo → triggers server-side verification
-- `bingo_confirmed` — Server confirms valid bingo → all players see winner
-- `round_reset` — Host starts new round → all cards reshuffle, marks clear
-- `player_joined` / `player_left` — Presence tracking
+**Authority model:** Host is the source of truth for game progression. Only the host can call items and reset rounds.
 
-**Authority model:** Host is the source of truth for game progression. Only the host can call items, confirm bingos, and reset rounds. Win verification runs server-side (Edge Function) to prevent client-side cheating.
-
-### Persistence Without Login
-1. On first visit, generate a UUID (`browserId`) stored in `localStorage`
-2. Create a Supabase anonymous auth session
-3. Link all game history/stats to this anonymous user
-4. If user later creates an account (email/Google), merge anonymous data into the new profile
-5. `browserId` serves as the fallback identity if auth session expires
-
-### Card Shuffling
-- **Full shuffle:** Fisher-Yates on the entire item array, then fill grid left-to-right, top-to-bottom
-- **Column-locked shuffle:** Partition items into N column groups, Fisher-Yates within each group
-- **Seed-based RNG:** Use a seeded PRNG (e.g., `mulberry32`) so each player's card is reproducible from `(templateId, gameSeed, playerId)` — critical for server-side win verification without storing every card
+### Identity, cards, wins
+- Identity is a `localStorage` `browserId` plus a Supabase anonymous session; a
+  new PC re-points at an existing player with `players.claim_code`.
+- **Seed-based RNG:** Use a seeded PRNG (e.g., `mulberry32`) so each player's card is reproducible from `(templateId, gameSeed, playerId)`. Every round draws N² items from the template's pool (Fisher-Yates, or column-locked); the card is also stored in `game_players.card_data`.
 
 ### Win Detection
 Runs in the browser on every mark (`src/lib/game/win-detection.ts`). Checks the
 player's marks against each enabled pattern:
-- **Row / Column / Diagonal / Four Corners / Blackout**, plus custom boolean grids
+- **Row / Column / Diagonal / Four Corners / Blackout**; `custom` is typed but
+  matches nothing yet (`matchesPattern` returns false)
 - `bestLine()` returns the closest incomplete line, which drives the "one away"
   label, the hot lane on my board, and every rail miniature's status
 
 A detected win auto-claims — there is no BINGO button. The round keeps running
 so second place can still happen.
 
----
-
-## Database Schema
-
-### Tables
-
-**players**
-- `id` UUID PK (default: gen_random_uuid())
-- `browser_id` TEXT UNIQUE NOT NULL — localStorage UUID
-- `auth_id` UUID NULLABLE FK → auth.users — linked after account creation
-- `display_name` TEXT NOT NULL
-- `avatar_url` TEXT NULLABLE
-- `created_at` TIMESTAMPTZ DEFAULT now()
-- `updated_at` TIMESTAMPTZ DEFAULT now()
-
-**card_templates**
-- `id` UUID PK
-- `creator_id` UUID FK → players
-- `name` TEXT NOT NULL
-- `board_size` INT NOT NULL (3, 4, 5, or 6)
-- `items` JSONB NOT NULL — array of `{ text?: string, imageUrl?: string, clue?: string }`
-- `styles` JSONB NOT NULL — `{ background, squares, gridLines, font, textAlign, freeSpace }`
-- `shuffle_mode` TEXT DEFAULT 'full' — 'full' | 'column'
-- `free_space` BOOLEAN DEFAULT true
-- `is_public` BOOLEAN DEFAULT false
-- `created_at` TIMESTAMPTZ DEFAULT now()
-
-**rooms**
-- `id` UUID PK
-- `host_id` UUID FK → players
-- `join_code` TEXT UNIQUE NOT NULL — 6-char alphanumeric, uppercase
-- `name` TEXT — optional room name
-- `template_id` UUID FK → card_templates
-- `status` TEXT DEFAULT 'waiting' — 'waiting' | 'playing' | 'finished'
-- `settings` JSONB — `{ winPatterns: string[], autoCall: bool, callInterval: number }`
-- `created_at` TIMESTAMPTZ DEFAULT now()
-
-**games** (one per round within a room)
-- `id` UUID PK
-- `room_id` UUID FK → rooms
-- `round_number` INT NOT NULL
-- `call_list` JSONB NOT NULL — ordered array of item indices
-- `calls_made` INT DEFAULT 0 — pointer into call_list
-- `seed` TEXT NOT NULL — PRNG seed for card generation
-- `status` TEXT DEFAULT 'active' — 'active' | 'won' | 'cancelled'
-- `win_pattern` TEXT — which pattern was achieved
-- `started_at` TIMESTAMPTZ DEFAULT now()
-- `ended_at` TIMESTAMPTZ NULLABLE
-
-**game_players** (join table — who played each game)
-- `id` UUID PK
-- `game_id` UUID FK → games
-- `player_id` UUID FK → players
-- `card_data` JSONB NOT NULL — the shuffled card grid for this player
-- `marks` JSONB DEFAULT '[]' — array of marked square indices
-- `won` BOOLEAN DEFAULT false
-- `finish_position` INT NULLABLE — 1st, 2nd, etc. for multi-winner modes
-- `bingo_time_ms` INT NULLABLE — time from game start to bingo claim
-
-**game_nights** (aggregate — groups rooms into "nights" for leaderboard)
-- `id` UUID PK
-- `name` TEXT — e.g., "Friday Night Bingo - April 10"
-- `room_ids` UUID[] — array of room IDs from this night
-- `date` DATE NOT NULL
-- `created_at` TIMESTAMPTZ DEFAULT now()
-
-### Row-Level Security (RLS)
-- Players can read their own data and any room they've joined
-- Only room hosts can update room settings and game state
-- Card templates: creator can CRUD; public templates readable by all
-- Game results readable by all participants
-
-### Indexes
-- `rooms.join_code` — UNIQUE, used for room lookup on join
-- `game_players(game_id, player_id)` — composite for quick lookups
-- `players.browser_id` — UNIQUE, used for anonymous identity resolution
+The schema is `supabase/migrations/` plus the generated `src/lib/supabase/types.ts`.
 
 ---
 
@@ -301,123 +209,13 @@ but is unused: a **night is a room**, and `/history` groups by room.
 
 ---
 
-## Phase Plan
-
-### Phase 1: Core MVP — "Let's Play Bingo"
-Everything needed for a functional game night.
-
-**1.1 — Project scaffold**
-- `npx create-next-app@latest squares --typescript --tailwind --app --src-dir`
-- Install deps: `@supabase/supabase-js`, `@supabase/ssr`, `zustand`, `canvas-confetti`
-- Init shadcn/ui: `npx shadcn@latest init`
-- Add shadcn components: button, input, dialog, card, badge, tooltip, dropdown-menu, separator, select, label, textarea, tabs
-- Set up Tailwind config with design tokens (colors, fonts)
-- Set up Supabase client (browser + server)
-- Set up root layout with font loading + theme provider
-
-**1.2 — Database schema**
-- Create Supabase project
-- Write and run migration `001_initial_schema.sql`
-- Set up RLS policies
-- Generate TypeScript types with `supabase gen types`
-
-**1.3 — Player identity**
-- `browser-id.ts` — generate/retrieve UUID from localStorage
-- `usePlayer` hook — resolve current player (anonymous or authed)
-- Auto-create player record on first visit
-- Display name prompt on first visit (stored in DB)
-
-**1.4 — Card template creator**
-- Board size selector (3x3 through 6x6)
-- Text entry per square (click to edit)
-- Bulk paste word list (auto-fills grid)
-- Free space toggle
-- Shuffle mode toggle (full vs. column-locked)
-- Card title input
-- Preview mode (see a shuffled version)
-- Save template to DB
-
-**1.5 — Room creation + join flow**
-- Host creates room → selects template → gets 6-char room code
-- Join page: enter room code → enter display name → enter lobby
-- Lobby shows connected players, host can start game
-- Shareable URL: `/room/[code]`
-
-**1.6 — Real-time game engine**
-- `useRealtimeRoom` hook — subscribe to room channel
-- Host caller panel: ordered call list, "Call Next" button, called items display
-- Player board: shuffled card generated from seed, click to mark squares
-- Real-time events: `item_called`, `square_marked`, `bingo_claimed`
-- Call history visible to all players
-
-**1.7 — Win detection + verification**
-- Client-side win check on each mark (for instant feedback)
-- "BINGO!" button appears when win detected
-- Server-side verification via Edge Function (regenerate card from seed, validate marks against calls)
-- Winner announcement broadcast to all players
-- Confetti cannon animation
-
-**1.8 — Round management**
-- Host can start new round (reshuffles all cards, resets marks)
-- Round counter visible in room
-- Game results saved to DB after each round
-
-**1.9 — Landing page**
-- Clean, inviting landing page
-- Two CTAs: "Create a Game" and "Join a Game"
-- Room code input for joining
-- Brief explanation of what Squares is
-
----
-
-### Phase 2: Customization Engine
-- Custom background images (upload to Supabase Storage)
-- Custom square colors (called, uncalled, marked, free space)
-- Custom grid line color, width, style
-- Google Fonts picker + font color
-- Text shadow/outline toggle
-- Images per square (drag-and-drop)
-- Text + image combo per square
-- Save/load card templates
-- Dark/light mode toggle
-
-### Phase 3: Competitive Features
-- All-time leaderboard (wins, win rate, games played, streaks)
-- Game night history (date, participants, per-round results)
-- Card snapshots (screenshot of winning card)
-- Player profiles with stats dashboard
-- Achievement badges
-
-### Phase 4: Power Features
-- Auto-caller with configurable interval
-- Text-to-speech for called items
-- Full-screen caller display
-- Custom win pattern builder (visual editor)
-- Game modes: Standard, Speed, Blackout, Pattern, Multi-winner
-- In-game chat/reactions
-- Sound effects
-- Spectator mode
-- Room passwords
-- QR code to join
-- Print support (PDF export)
-
-### Phase 5: Social & Polish
-- Share game results as images
-- Rematch button
-- Recurring game night scheduling
-- PWA support
-- WCAG 2.1 AA accessibility
-- Mobile-optimized interactions
-
----
-
 ## Code Conventions
 
 ### General
 - **TypeScript strict mode** — no `any` unless absolutely unavoidable (and comment why)
 - **Functional components only** — no class components
 - **Named exports** — no default exports except for Next.js pages/layouts
-- **Barrel exports** — `index.ts` in each component directory
+- **Barrel exports** — `index.ts` in each component directory (not followed yet: no `index.ts` exists under `src/components/` — ask before adding or dropping)
 - **Comments** — explain the "why", not the "what". Add comments for non-obvious logic, game rules, and algorithm choices
 
 ### File Naming
@@ -426,36 +224,7 @@ Everything needed for a functional game night.
 - Types: `camelCase.ts` (colocated with feature or in `types/`)
 
 ### Component Pattern
-```tsx
-// components/board/BingoSquare.tsx
-'use client';
-
-import { cn } from '@/lib/utils/cn';
-import type { Square } from '@/types/card';
-
-interface BingoSquareProps {
-  square: Square;
-  isMarked: boolean;
-  isCalled: boolean;
-  onMark: () => void;
-}
-
-export function BingoSquare({ square, isMarked, isCalled, onMark }: BingoSquareProps) {
-  return (
-    <button
-      onClick={onMark}
-      className={cn(
-        'aspect-square flex items-center justify-center p-2 transition-all duration-150',
-        'border border-grid-line text-sm font-medium',
-        isMarked && 'bg-amber-500/20 ring-2 ring-amber-500',
-        isCalled && !isMarked && 'bg-violet-500/10',
-      )}
-    >
-      {square.text}
-    </button>
-  );
-}
-```
+`'use client'` when interactive, a named export with a typed `Props` interface, classes merged with `cn()` from `@/lib/utils` (worked example in the decision index).
 
 ### State Management
 - **Zustand stores** for game state, editor state, player identity
@@ -487,42 +256,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-key  # Server-side only, never expose
 ```
 
----
-
-## Key Algorithms
-
-### Room Code Generation
-```
-Generate 6 uppercase alphanumeric characters (A-Z, 0-9)
-Exclude ambiguous characters: O, 0, I, 1, L
-Check uniqueness against rooms table
-Retry if collision (statistically near-impossible with this character space)
-```
-
-### Seeded Card Generation
-```
-Input: (templateItems[], seed, playerId, boardSize, shuffleMode)
-1. Combine seed + playerId to create player-specific seed
-2. Initialize mulberry32 PRNG with this seed
-3. If shuffleMode === 'full': Fisher-Yates shuffle entire items array
-   If shuffleMode === 'column': partition items into boardSize groups, shuffle within each
-4. Take first (boardSize × boardSize) items
-5. If freeSpace: replace center item with FREE_SPACE sentinel
-6. Return grid as 2D array
-```
-
-### Win Detection
-```
-Input: (marks: Set<number>, boardSize: number, winPatterns: string[])
-For each pattern in winPatterns:
-  If pattern === 'row': check each row for all marked
-  If pattern === 'column': check each column for all marked
-  If pattern === 'diagonal': check both diagonals
-  If pattern === 'four_corners': check 4 corner indices
-  If pattern === 'blackout': check all squares marked
-  If pattern === 'custom': compare marks against custom boolean grid
-Return first matching pattern or null
-```
+Running locally, type check, lint and migrations: `README.md`.
 
 ---
 
@@ -554,6 +288,20 @@ a Cloudflare tunnel was dropped in favour of Workers.
 - Sound effects and confetti are non-negotiable. They make the game.
 - **Desktop only.** Squares lives on a second monitor beside Discord while the
   main monitor is playing something else. Assume ~1280×800 minimum. No mobile work.
+
+---
+
+## Decisions
+
+Read the file before changing the code it names. Each keeps the original text verbatim.
+
+- Stay on Next.js + Supabase Realtime + Zustand + shadcn/ui — no custom socket server, no Redux; versions come from `package.json` — docs/decisions/0001-stack-choices.md
+- A win is whatever the claimant's tab detects; no Edge Function, RLS open, and that must change before outsiders join — docs/decisions/0002-client-side-win-verification.md
+- Identity is `browserId` + anonymous session + `claim_code`; there is no account, login or merge path — docs/decisions/0003-identity-without-login.md
+- Cards stay seed-reproducible but `card_data` is what the app reads; `custom` win patterns are unimplemented — docs/decisions/0004-seeded-cards-and-win-patterns.md
+- The migrations and `types.ts` are the schema, not the planned table list; RLS is open, `game_nights` unused — docs/decisions/0005-database-schema-as-planned.md
+- The Phase 1–5 plan is history: where it disagrees with the code, the code wins; ask before building a plan item — docs/decisions/0006-original-phase-plan.md
+- Import `cn` from `@/lib/utils`, never `@/lib/utils/cn` (the old example's path does not exist) — docs/decisions/0007-component-pattern-example.md
 
 ---
 
