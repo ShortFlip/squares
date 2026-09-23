@@ -29,6 +29,7 @@ interface GameLobbyProps {
     winPatterns: WinPattern[];
     gameMode: GameMode;
     cardStyles: CardStyles;
+    startedAt: string;
   }) => Promise<void>;
 }
 
@@ -99,6 +100,8 @@ export function GameLobby({
         winPatterns: setup.winPatterns,
         gameMode: setup.gameMode,
         cardStyles: setup.cardStyles,
+        // The DB's start time, so bingo times match what a refreshed tab restores.
+        startedAt: game.started_at,
       });
     } catch (err) {
       console.error('Failed to start game:', err);

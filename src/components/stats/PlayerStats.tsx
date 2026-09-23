@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { computeAchievements, formatTime, formatPattern } from '@/lib/achievements';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
+import { isScoredRound } from '@/lib/game/stats';
 import type { Achievement } from '@/lib/achievements';
 
 interface StatsData {
@@ -33,13 +34,17 @@ export function PlayerStats({ playerId, displayName, avatarUrl, compact }: Playe
       .from('game_players')
       .select('won, bingo_time_ms, games!game_players_game_id_fkey(win_pattern, status)')
       .eq('player_id', playerId)
-      .then(({ data: raw }) => {
+      .then(({ data: raw, error }) => {
+        // A failed read shows no stats rather than a false "0 games"; log it
+        // so it isn't silently swallowed.
+        if (error) console.error('Failed to load player stats:', error);
         if (!raw) { setIsLoading(false); return; }
 
-        // A round the host abandoned counts for nobody — same rule the
+        // Only won rounds are played rounds (cancelled and never-closed
+        // 'active' rounds are not) — the same isScoredRound rule the
         // leaderboard applies, so the two screens never disagree.
         const data = raw.filter(
-          (r) => (r.games as { status: string } | null)?.status !== 'cancelled',
+          (r) => isScoredRound((r.games as { status: string } | null)?.status),
         );
 
         const totalGames = data.length;

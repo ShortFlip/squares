@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { SquareItem, CardStyles } from '@/types/card';
 import type { WinPattern, GameMode } from '@/types/game';
+import { resolveGameStartedAt } from '@/lib/game/restore';
 
 /**
  * Another player in this round, as far as this client knows.
@@ -73,6 +74,9 @@ interface GameState {
     winPatterns: WinPattern[];
     gameMode?: GameMode; // legacy game_started payloads omit it → 'honor'
     cardStyles?: CardStyles;
+    // games.started_at. Optional only because a legacy game_started payload
+    // omits it; every current path passes the DB value.
+    startedAt?: string | null;
   }) => void;
   setMyCard: (card: SquareItem[]) => void;
   setCalledCount: (count: number) => void;
@@ -110,7 +114,7 @@ const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; se
 export const useGameStore = create<GameState>((set, get) => ({
   ...initial,
 
-  initGame: (params) =>
+  initGame: ({ startedAt, ...params }) =>
     set({
       ...params,
       gameMode: params.gameMode ?? 'honor',
@@ -119,7 +123,10 @@ export const useGameStore = create<GameState>((set, get) => ({
       myCard: [],
       myMarks: [],
       hasClaimed: false,
-      gameStartedAt: new Date().toISOString(),
+      // The round's real start from the DB, not the moment this tab heard
+      // about it — a refresh used to restart the clock and record impossibly
+      // fast bingo times.
+      gameStartedAt: resolveGameStartedAt(startedAt),
       winners: [],
       // A new round means everyone's old board is meaningless; loadGamePlayers
       // repopulates this once the fresh game_players rows exist.

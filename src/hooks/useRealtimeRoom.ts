@@ -37,6 +37,9 @@ interface GameStartedPayload {
   winPatterns: WinPattern[];
   gameMode?: GameMode;
   cardStyles?: CardStyles;
+  // games.started_at, so every tab times bingos from the same instant. Legacy
+  // payloads omit it and fall back to "now".
+  startedAt?: string;
 }
 
 interface ItemCalledPayload {

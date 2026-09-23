@@ -16,6 +16,7 @@ import { loadGamePlayers } from '@/lib/game/game-players';
 import { saveLastRoom, clearLastRoom } from '@/lib/utils/last-room';
 import { checkWin } from '@/lib/game/win-detection';
 import { withRetry, RETRY_DELAYS_MS } from '@/lib/utils/retry';
+import { resolveRestoredCard, computeBingoTimeMs } from '@/lib/game/restore';
 import type { Json, Tables } from '@/lib/supabase/types';
 import type { Room, WinPattern, GameMode } from '@/types/game';
 import type { SquareItem, CardStyles } from '@/types/card';
@@ -98,8 +99,9 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
   /**
    * Rebuild this player's view of the room's latest round from the DB: the
    * rejoin path (tab closed mid-game, refresh) and the catch-up path (a new
-   * round started while our socket was down). Card generation is deterministic
-   * (seed + playerId), so we get the exact card the player had before.
+   * round started while our socket was down). The card comes from our saved
+   * game_players.card_data when it exists, so a template edited mid-night
+   * can't reshuffle it; only a first join regenerates it from seed + playerId.
    *
    * Every read retries on its own short backoff, and a failed read never falls
    * through to a write: treating "couldn't read my row" as "I have no row" is
@@ -176,10 +178,43 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     const template = templateRead.value;
     if (useGameStore.getState().gameId === game.id) return;
 
+    // Our own row, read BEFORE the card is built: its card_data is the card we
+    // were actually marking. maybeSingle() separates the two cases the old
+    // .single() lumped together: `data: null` with no error is a genuine first
+    // join, an error is a failed read and must never lead to a write.
+    const ownRead = await withRetry<{ marks: Json; card_data: Json } | null>(async () => {
+      const { data, error } = await supabase
+        .from('game_players')
+        .select('marks, card_data')
+        .match({ game_id: game.id, player_id: playerId })
+        .maybeSingle();
+      if (error) {
+        console.error('Failed to read own game_players row:', error);
+        return { ok: false };
+      }
+      return { ok: true, value: data };
+    }, RETRY_DELAYS_MS, warnOnce);
+    if (!ownRead.ok) {
+      toast.error("Couldn't restore your board. Try refreshing.");
+      return;
+    }
+    const ownRow = ownRead.value;
+    if (useGameStore.getState().gameId === game.id) return;
+
     // Same bootstrap the lobby/new-round paths use, seeded from the existing
     // game so the item filter (and therefore indices) can't drift.
     const setup = buildGameSetup(template, initialRoom.settings, game.seed);
     const items = setup.items;
+
+    // The stored card wins over a regenerated one: the host may have edited
+    // the template since this round started, and a regenerated card would put
+    // our saved marks on different squares. Regenerate only for a first join
+    // (no row yet) or a row with no usable card.
+    const restored = resolveRestoredCard(
+      ownRow?.card_data,
+      { boardSize: setup.boardSize, freeSpace: setup.freeSpace },
+      () => generateCard(items, game.seed, playerId, setup.boardSize, setup.shuffleMode, setup.freeSpace),
+    );
 
     const { initGame, setMyCard, setCalledCount, setMyMarks } = useGameStore.getState();
 
@@ -191,27 +226,20 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
       // host has actually been calling from.
       callList: game.call_list as number[],
       templateItems: items,
-      boardSize: setup.boardSize,
-      freeSpace: setup.freeSpace,
+      boardSize: restored.boardSize,
+      freeSpace: restored.freeSpace,
       shuffleMode: setup.shuffleMode,
       winPatterns: setup.winPatterns,
       gameMode: setup.gameMode,
       cardStyles: setup.cardStyles,
+      // The round's real start, so a bingo after this refresh is timed from
+      // when the round began rather than from the refresh.
+      startedAt: game.started_at,
     });
 
     // Restore how far the host has called
     setCalledCount(game.calls_made);
-
-    // Regenerate the card — same seed + playerId always produces the same layout
-    const card = generateCard(
-      items,
-      game.seed,
-      playerId,
-      setup.boardSize,
-      setup.shuffleMode,
-      setup.freeSpace,
-    );
-    setMyCard(card);
+    setMyCard(restored.card);
 
     // Restore winners (ourselves included) BEFORE marks — if this player
     // already won, the winners list and hasClaimed must be populated before
@@ -231,29 +259,8 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     // The host moved on while we were reading; that round's restore owns the store now.
     if (useGameStore.getState().gameId !== game.id) return;
 
-    // Our own row. maybeSingle() separates the two cases the old .single()
-    // lumped together: `data: null` with no error is a genuine first join,
-    // an error is a failed read and must never lead to a write.
-    const ownRead = await withRetry<{ marks: Json } | null>(async () => {
-      const { data, error } = await supabase
-        .from('game_players')
-        .select('marks')
-        .match({ game_id: game.id, player_id: playerId })
-        .maybeSingle();
-      if (error) {
-        console.error('Failed to read own game_players row:', error);
-        return { ok: false };
-      }
-      return { ok: true, value: data };
-    }, RETRY_DELAYS_MS, warnOnce);
-    if (!ownRead.ok) {
-      toast.error("Couldn't restore your marks. Try refreshing.");
-      return;
-    }
-    if (useGameStore.getState().gameId !== game.id) return;
-
-    if (ownRead.value) {
-      setMyMarks((ownRead.value.marks ?? []) as number[]);
+    if (ownRow) {
+      setMyMarks((ownRow.marks ?? []) as number[]);
       return;
     }
 
@@ -261,7 +268,7 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     // it started, or missed game_started). ignoreDuplicates: if a row appeared
     // since the read (the broadcast path raced us), it stays untouched.
     const { error: insertError } = await supabase.from('game_players').upsert(
-      { game_id: game.id, player_id: playerId, card_data: card as unknown as Json, marks: [], won: false },
+      { game_id: game.id, player_id: playerId, card_data: restored.card as unknown as Json, marks: [], won: false },
       { onConflict: 'game_id,player_id', ignoreDuplicates: true },
     );
     if (insertError) {
@@ -301,6 +308,7 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     winPatterns: WinPattern[];
     gameMode: GameMode;
     cardStyles: CardStyles;
+    startedAt: string;
   }) {
     await broadcast('game_started', payload as unknown as Record<string, unknown>);
   }
@@ -355,10 +363,7 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
 
     const supabase = createClient();
     const finishPosition = currentWinners.length + 1;
-    const gameStartedAt = useGameStore.getState().gameStartedAt;
-    const bingoTimeMs = gameStartedAt
-      ? Date.now() - new Date(gameStartedAt).getTime()
-      : null;
+    const bingoTimeMs = computeBingoTimeMs(useGameStore.getState().gameStartedAt, Date.now());
 
     // Our own banner, fanfare and confetti come from here, not from the
     // self-echo of the broadcast below: if the channel is mid-reconnect there
@@ -414,6 +419,32 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     });
   }
 
+  /**
+   * Mark the current round 'cancelled' if, as far as this host knows, nobody
+   * won it. The local winners list is only a hint — the host may have missed a
+   * bingo_confirmed — so the write is conditional on the DB still saying
+   * 'active': a round the DB already has as 'won' is never flipped to
+   * cancelled and dropped off the leaderboard.
+   *
+   * A failure is reported but does not block New Round / End Night: a round
+   * left 'active' is already excluded from stats (isScoredRound), so the only
+   * cost is a stale status, while blocking would strand the whole room.
+   */
+  async function cancelUnwonRound() {
+    const { gameId: prevGameId, winners: prevWinners } = useGameStore.getState();
+    if (!prevGameId || prevWinners.length > 0) return;
+    const { error } = await createClient()
+      .from('games')
+      .update({ status: 'cancelled', ended_at: new Date().toISOString() })
+      .eq('id', prevGameId)
+      .eq('status', 'active');
+    if (error) {
+      console.error('Failed to close out the round:', error);
+      // Generic copy — never surface raw DB error text.
+      toast.error("Couldn't close out the last round. Stats are unaffected.");
+    }
+  }
+
   // A double-click on New Round / Play Again must not insert two rounds. A ref,
   // not state, so the second click sees it before React re-renders.
   const newRoundInFlight = useRef(false);
@@ -436,12 +467,7 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
       // Close out the previous round. If someone won, handleBingoClaim already
       // marked the game 'won' — only rounds abandoned with zero winners need a
       // status, and that's 'cancelled' so stats never count a phantom win.
-      const { gameId: prevGameId, winners: prevWinners } = useGameStore.getState();
-      if (prevGameId && prevWinners.length === 0) {
-        await supabase.from('games')
-          .update({ status: 'cancelled', ended_at: new Date().toISOString() })
-          .eq('id', prevGameId);
-      }
+      await cancelUnwonRound();
 
       // Shared bootstrap: item filter + settings parse + fresh seed/call list
       const setup = buildGameSetup(template, initialRoom.settings);
@@ -487,6 +513,8 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
         winPatterns: setup.winPatterns,
         gameMode: setup.gameMode,
         cardStyles: setup.cardStyles,
+        // The DB's start time, so bingo times match what a refreshed tab restores.
+        startedAt: game.started_at,
       });
 
       // If we're coming back from the 'finished' state (host hit "Play Again"
@@ -520,12 +548,7 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
       // Same close-out handleNewRound performs: a final round that nobody won
       // must not linger as 'active', or the leaderboard counts a round that was
       // simply abandoned when the night ended.
-      const { gameId: prevGameId, winners: prevWinners } = useGameStore.getState();
-      if (prevGameId && prevWinners.length === 0) {
-        await supabase.from('games')
-          .update({ status: 'cancelled', ended_at: new Date().toISOString() })
-          .eq('id', prevGameId);
-      }
+      await cancelUnwonRound();
 
       const { error } = await supabase
         .from('rooms')
