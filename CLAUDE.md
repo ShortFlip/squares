@@ -224,7 +224,7 @@ but is unused: a **night is a room**, and `/history` groups by room.
 - Types: `camelCase.ts` (colocated with feature or in `types/`)
 
 ### Component Pattern
-`'use client'` when interactive, a named export with a typed `Props` interface, classes merged with `cn()` from `@/lib/utils` (worked example in the decision index).
+`'use client'` when interactive, a named export with a typed `Props` interface, classes merged with `cn()` from `@/lib/utils` (worked example in `docs/spec/component-pattern-example.md`).
 
 ### State Management
 - **Zustand stores** for game state, editor state, player identity
@@ -297,11 +297,16 @@ Read the file before changing the code it names. Each keeps the original text ve
 
 - Stay on Next.js + Supabase Realtime + Zustand + shadcn/ui — no custom socket server, no Redux; versions come from `package.json` — docs/decisions/0001-stack-choices.md
 - A win is whatever the claimant's tab detects; no Edge Function, RLS open, and that must change before outsiders join — docs/decisions/0002-client-side-win-verification.md
-- Identity is `browserId` + anonymous session + `claim_code`; there is no account, login or merge path — docs/decisions/0003-identity-without-login.md
-- Cards stay seed-reproducible but `card_data` is what the app reads; `custom` win patterns are unimplemented — docs/decisions/0004-seeded-cards-and-win-patterns.md
-- The migrations and `types.ts` are the schema, not the planned table list; RLS is open, `game_nights` unused — docs/decisions/0005-database-schema-as-planned.md
-- The Phase 1–5 plan is history: where it disagrees with the code, the code wins; ask before building a plan item — docs/decisions/0006-original-phase-plan.md
-- Import `cn` from `@/lib/utils`, never `@/lib/utils/cn` (the old example's path does not exist) — docs/decisions/0007-component-pattern-example.md
+
+### Original spec
+
+The first-written plan, kept verbatim in `docs/spec/`. Where it disagrees with the code, the code wins.
+
+- Identity is `browserId` + anonymous session + `claim_code`; there is no account, login or merge path — docs/spec/identity-without-login.md
+- Cards stay seed-reproducible but `card_data` is what the app reads; `custom` win patterns are unimplemented — docs/spec/seeded-cards-and-win-patterns.md
+- The migrations and `types.ts` are the schema, not the planned table list; RLS is open, `game_nights` unused — docs/spec/database-schema-as-planned.md
+- The Phase 1–5 plan is history: where it disagrees with the code, the code wins; ask before building a plan item — docs/spec/original-phase-plan.md
+- Import `cn` from `@/lib/utils`, never `@/lib/utils/cn` (the old example's path does not exist) — docs/spec/component-pattern-example.md
 
 ---
 
