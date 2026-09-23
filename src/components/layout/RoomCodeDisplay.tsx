@@ -48,10 +48,9 @@ export function RoomCodeDisplay({ code, className }: RoomCodeDisplayProps) {
           Room Code
         </p>
         <span
-          className="font-mono text-5xl font-bold tracking-[0.2em] text-foreground select-all"
-          // Same violet halo as the game header's code, so the code reads as
-          // the same object in both places.
-          style={{ textShadow: '0 0 18px var(--primary)' }}
+          // Same violet halo as the game header's code (.code-glow), so the
+          // code reads as the same object in both places.
+          className="code-glow font-mono text-5xl font-bold tracking-[0.2em] text-foreground select-all"
         >
           {code}
         </span>

@@ -489,6 +489,20 @@
   outline-offset: 0;
 }
 
+/* ── Room code glow ────────────────────────────────────────────────────────
+   The neon halo on the room code (lobby, game header, loading header). On a
+   dark ground a wide 18px bloom reads as neon; on Latte's cream the same
+   bloom sits behind dark text and reads as a smudge — blurred, not lit. Light
+   themes get a tight, faint halo instead, so the code stays crisp and the
+   violet is a hint rather than a haze. */
+.code-glow {
+  text-shadow: 0 0 18px var(--primary);
+}
+
+:root:not(.dark) .code-glow {
+  text-shadow: 0 0 4px color-mix(in oklab, var(--primary) 30%, transparent);
+}
+
 /* ── Hero fit ──────────────────────────────────────────────────────────────
    The game screen's hero column is a size container, so the grid inside it
    can be sized from cqw/cqh — the space the layout actually left it — rather

@@ -35,8 +35,7 @@ export function GameSkeleton({ joinCode, boardSize = 5 }: GameSkeletonProps) {
           <span className="font-display text-[15px] font-extrabold">Squares</span>
           <span className="w-px h-[22px] bg-foreground/12" />
           <span
-            className="font-mono text-[26px] font-bold tracking-[0.14em]"
-            style={{ textShadow: '0 0 18px var(--primary)' }}
+            className="code-glow font-mono text-[26px] font-bold tracking-[0.14em]"
           >
             {joinCode}
           </span>
