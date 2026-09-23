@@ -8,16 +8,7 @@ import { usePlayer } from '@/hooks/usePlayer';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { formatTime } from '@/lib/achievements';
 import { cn } from '@/lib/utils';
-
-interface LeaderboardRow {
-  playerId: string;
-  displayName: string;
-  avatarUrl: string | null;
-  wins: number;
-  games: number;
-  winRate: number;
-  bestTimeMs: number | null;
-}
+import { buildLeaderboard, type LeaderboardRecord, type LeaderboardRow } from '@/lib/game/stats';
 
 export default function LeaderboardPage() {
   const { player } = usePlayer();
@@ -61,60 +52,28 @@ export default function LeaderboardPage() {
         `)
         .in('games.room_id', roomIds);
 
-      {
-        if (error) { console.error(error); setIsLoading(false); return; }
+      if (error) { console.error(error); setIsLoading(false); return; }
 
-        // Aggregate stats per player client-side
-        const map = new Map<string, LeaderboardRow>();
-
-        (data ?? []).forEach((record) => {
-          const p = record.players as { display_name: string; avatar_url: string | null } | null;
-          if (!p) return;
-
-          // A round the host abandoned never happened, for anybody.
-          const g = record.games as unknown as { status: string } | null;
-          if (g?.status === 'cancelled') return;
-
-          if (!map.has(record.player_id)) {
-            map.set(record.player_id, {
-              playerId: record.player_id,
-              displayName: p.display_name,
-              avatarUrl: p.avatar_url,
-              wins: 0,
-              games: 0,
-              winRate: 0,
-              bestTimeMs: null,
-            });
-          }
-
-          const row = map.get(record.player_id)!;
-          row.games++;
-          if (record.won) {
-            row.wins++;
-            if (record.bingo_time_ms !== null) {
-              row.bestTimeMs =
-                row.bestTimeMs === null
-                  ? record.bingo_time_ms
-                  : Math.min(row.bestTimeMs, record.bingo_time_ms);
-            }
-          }
+      // Unwrap the embeds, then let the shared stats rule decide which rounds
+      // count (only won ones — see isScoredRound) so this board and the
+      // profile stats card can never disagree.
+      const records: LeaderboardRecord[] = [];
+      for (const record of data ?? []) {
+        const p = record.players as { display_name: string; avatar_url: string | null } | null;
+        if (!p) continue;
+        const g = record.games as unknown as { status: string } | null;
+        records.push({
+          playerId: record.player_id,
+          displayName: p.display_name,
+          avatarUrl: p.avatar_url,
+          won: record.won,
+          bingoTimeMs: record.bingo_time_ms,
+          gameStatus: g?.status ?? null,
         });
-
-        // Compute win rate + sort by wins desc, then best time asc
-        const sorted = [...map.values()]
-          .map((r) => ({ ...r, winRate: r.games > 0 ? Math.round((r.wins / r.games) * 100) : 0 }))
-          .sort((a, b) => {
-            if (b.wins !== a.wins) return b.wins - a.wins;
-            // Tiebreak: better win rate
-            if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-            // Tiebreak: faster best time
-            if (a.bestTimeMs !== null && b.bestTimeMs !== null) return a.bestTimeMs - b.bestTimeMs;
-            return 0;
-          });
-
-        setRows(sorted);
-        setIsLoading(false);
       }
+
+      setRows(buildLeaderboard(records));
+      setIsLoading(false);
     }
 
     load();
@@ -135,7 +94,7 @@ export default function LeaderboardPage() {
           </Link>
           <h1 className="font-display text-3xl font-black">Leaderboard</h1>
           <p className="text-muted-foreground text-sm">
-            Everyone who has played a night with you. Cancelled rounds don&apos;t count.
+            Everyone who has played a night with you. Unfinished and cancelled rounds don&apos;t count.
           </p>
         </div>
 

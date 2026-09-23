@@ -8,6 +8,13 @@ import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { DisplayNameDialog } from './DisplayNameDialog';
 import { ProfileModal } from './ProfileModal';
 import { getSavedTheme, applyTheme } from '@/lib/theme';
+import { ServerUnreachable } from '@/components/layout/ServerUnreachable';
+import { withRetry } from '@/lib/utils/retry';
+import type { Player } from '@/types/player';
+
+// Identity gates every page, so it retries briefly (~3.5 s) before admitting
+// the server is unreachable, rather than the rejoin path's ~15 s.
+const IDENTITY_RETRY_DELAYS_MS = [500, 1000, 2000];
 
 interface PlayerProviderProps {
   children: React.ReactNode;
@@ -23,11 +30,15 @@ interface PlayerProviderProps {
  * 3. Look up existing player record by browser_id
  * 4. If found → load into store, done
  * 5. If not found → show DisplayNameDialog → create player → load into store
+ * 6. If the lookup itself failed → show ServerUnreachable with a retry. A
+ *    failed read is NOT "not found": prompting a returning friend for a name
+ *    would then hit the unique browser_id on insert and loop on an error.
  */
 export function PlayerProvider({ children }: PlayerProviderProps) {
   const { player, setPlayer, setLoading } = usePlayerStore();
   const [needsName, setNeedsName] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [unreachable, setUnreachable] = useState(false);
 
   useEffect(() => {
     // Restore saved theme on every page load
@@ -52,21 +63,39 @@ export function PlayerProvider({ children }: PlayerProviderProps) {
       }
     }
 
-    // Look for an existing player tied to this browser
-    const { data: player } = await supabase
-      .from('players')
-      .select('*')
-      .eq('browser_id', browserId)
-      .maybeSingle();
+    // Look for an existing player tied to this browser. `error` and "no row"
+    // are separate answers — see step 6 above.
+    const lookup = await withRetry<Player | null>(async () => {
+      const { data, error } = await supabase
+        .from('players')
+        .select('*')
+        .eq('browser_id', browserId)
+        .maybeSingle();
+      if (error) {
+        console.error('Failed to look up player:', error);
+        return { ok: false };
+      }
+      return { ok: true, value: data };
+    }, IDENTITY_RETRY_DELAYS_MS);
+
+    if (!lookup.ok) {
+      // isLoading stays true so no page acts on a missing player meanwhile.
+      setUnreachable(true);
+      return;
+    }
+    setUnreachable(false);
+    const player = lookup.value;
 
     if (player) {
       // If the player was created before anonymous auth was enabled their
       // auth_id will be null. Backfill it now so RLS ownership checks work.
       if (!player.auth_id && session?.user.id) {
-        await supabase
+        const { error: backfillError } = await supabase
           .from('players')
           .update({ auth_id: session.user.id })
           .eq('id', player.id);
+        // Not fatal — the player can still play; the backfill retries next load.
+        if (backfillError) console.error('Failed to backfill auth_id:', backfillError);
         setPlayer({ ...player, auth_id: session.user.id });
       } else {
         setPlayer(player);
@@ -100,6 +129,10 @@ export function PlayerProvider({ children }: PlayerProviderProps) {
     setPlayer(player);
     setNeedsName(false);
   }
+
+  // Replaces the page rather than overlaying it: every page below needs a
+  // player, and none of them has anything useful to show without one.
+  if (unreachable) return <ServerUnreachable onRetry={initPlayer} />;
 
   return (
     <>

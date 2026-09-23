@@ -86,3 +86,36 @@ describe('addWinner', () => {
     expect(useGameStore.getState().winners.map((w) => w.playerId)).toEqual(['bob', 'cat']);
   });
 });
+
+describe('initGame', () => {
+  const base = {
+    gameId: 'g1',
+    seed: 's',
+    roundNumber: 1,
+    callList: [],
+    templateItems: [],
+    boardSize: 5,
+    freeSpace: true,
+    shuffleMode: 'full' as const,
+    winPatterns: ['row' as const],
+  };
+
+  it('times the round from the DB start, not from when this tab initialised', () => {
+    // The refresh bug: a rejoin restarted the clock, so the next bingo looked
+    // impossibly fast on the leaderboard.
+    useGameStore.getState().initGame({ ...base, startedAt: '2026-09-23T19:45:00+00:00' });
+    expect(useGameStore.getState().gameStartedAt).toBe('2026-09-23T19:45:00+00:00');
+  });
+
+  it('falls back to now for a legacy payload without startedAt', () => {
+    const before = Date.now();
+    useGameStore.getState().initGame(base);
+    const stamped = new Date(useGameStore.getState().gameStartedAt!).getTime();
+    expect(stamped).toBeGreaterThanOrEqual(before);
+  });
+
+  it('does not leak startedAt into the store as its own field', () => {
+    useGameStore.getState().initGame({ ...base, startedAt: '2026-09-23T19:45:00+00:00' });
+    expect('startedAt' in useGameStore.getState()).toBe(false);
+  });
+});
