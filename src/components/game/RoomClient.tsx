@@ -15,6 +15,8 @@ import { buildGameSetup } from '@/lib/game/game-setup';
 import { loadGamePlayers } from '@/lib/game/game-players';
 import { saveLastRoom, clearLastRoom } from '@/lib/utils/last-room';
 import { checkWin } from '@/lib/game/win-detection';
+import { withRetry, RETRY_DELAYS_MS } from '@/lib/utils/retry';
+import type { Json, Tables } from '@/lib/supabase/types';
 import type { Room, WinPattern, GameMode } from '@/types/game';
 import type { SquareItem, CardStyles } from '@/types/card';
 
@@ -25,12 +27,20 @@ interface RoomClientProps {
 export function RoomClient({ initialRoom }: RoomClientProps) {
   const router = useRouter();
   const { player, isLoading } = usePlayer();
+  // The DB bootstrap below, reachable from the hook. A ref (set in an effect)
+  // rather than the function itself so the hook's channel never resubscribes
+  // just because this component re-rendered.
+  const restoreRoundRef = useRef<(() => Promise<void>) | null>(null);
   const { presentPlayers, connection, broadcast } = useRealtimeRoom(
     initialRoom.join_code,
     initialRoom.id,
     player,
     // room_closed → re-render the server component so status 'finished' shows GameOver
     () => router.refresh(),
+    // A newer round exists that we never got game_started for → load it from the DB.
+    () => {
+      restoreRoundRef.current?.().catch((err) => console.error('Round restore failed:', err));
+    },
   );
   const { gameId } = useGameStore();
 
@@ -78,123 +88,199 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     }
   }, [gameId, initialRoom.status, router]);
 
-  // Reconnect: if the room is already playing but our store is empty (e.g. tab was
-  // closed mid-game), fetch the active game from the DB and rebuild state locally.
-  // Card generation is deterministic (seed + playerId) so we get the exact same card
-  // the player had before closing the tab.
-  useEffect(() => {
-    if (initialRoom.status !== 'playing' || gameId || !player) return;
+  // Guards restoreLatestRound: the mount effect, a games INSERT and a regained
+  // SUBSCRIBED can all ask for it within a second of each other. A request
+  // that arrives mid-restore is remembered and run once the current one ends,
+  // so a round inserted during a restore is not skipped.
+  const restoringRef = useRef(false);
+  const restoreAgainRef = useRef(false);
 
-    const playerId = player.id; // capture before async so TypeScript is happy
+  /**
+   * Rebuild this player's view of the room's latest round from the DB: the
+   * rejoin path (tab closed mid-game, refresh) and the catch-up path (a new
+   * round started while our socket was down). Card generation is deterministic
+   * (seed + playerId), so we get the exact card the player had before.
+   *
+   * Every read retries on its own short backoff, and a failed read never falls
+   * through to a write: treating "couldn't read my row" as "I have no row" is
+   * exactly how a refresh used to wipe a board and un-win a winner.
+   */
+  async function restoreLatestRound() {
+    if (!player || !initialRoom.template_id) return;
+    if (restoringRef.current) {
+      restoreAgainRef.current = true;
+      return;
+    }
+    restoringRef.current = true;
+    try {
+      do {
+        restoreAgainRef.current = false;
+        await restoreOnce(player.id, initialRoom.template_id);
+      } while (restoreAgainRef.current);
+    } finally {
+      restoringRef.current = false;
+    }
+  }
 
-    async function reconnect() {
-      const supabase = createClient();
+  async function restoreOnce(playerId: string, templateId: string) {
+    const supabase = createClient();
+    // One heads-up per restore, not one per retry.
+    let warned = false;
+    const warnOnce = () => {
+      if (warned) return;
+      warned = true;
+      toast.error('Having trouble reaching the game. Retrying…');
+    };
 
-      // Get the most recent game for this room (could be active or just won)
-      const { data: game } = await supabase
+    // The live round is the most recently started one. round_number is not
+    // unique in older data, so ordering by it could pick a finished round.
+    const gameRead = await withRetry<Tables<'games'> | null>(async () => {
+      const { data, error } = await supabase
         .from('games')
         .select('*')
         .eq('room_id', initialRoom.id)
-        .order('round_number', { ascending: false })
+        .order('started_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
+      if (error) {
+        console.error('Failed to read the current round:', error);
+        return { ok: false };
+      }
+      return { ok: true, value: data };
+    }, RETRY_DELAYS_MS, warnOnce);
+    if (!gameRead.ok) {
+      toast.error("Couldn't load this round. Try refreshing.");
+      return;
+    }
+    const game = gameRead.value;
+    if (!game) return;
+    // The game_started broadcast may have got us here first.
+    if (useGameStore.getState().gameId === game.id) return;
 
-      if (!game || !initialRoom.template_id) return;
-
-      const { data: template } = await supabase
+    const templateRead = await withRetry<Tables<'card_templates'>>(async () => {
+      const { data, error } = await supabase
         .from('card_templates')
         .select('*')
-        .eq('id', initialRoom.template_id)
+        .eq('id', templateId)
         .single();
-
-      if (!template) return;
-
-      // Same bootstrap the lobby/new-round paths use, seeded from the existing
-      // game so the item filter (and therefore indices) can't drift.
-      const setup = buildGameSetup(template, initialRoom.settings, game.seed);
-      const items = setup.items;
-
-      const { initGame, setMyCard, setCalledCount, setMyMarks } = useGameStore.getState();
-
-      initGame({
-        gameId: game.id,
-        seed: game.seed,
-        roundNumber: game.round_number,
-        // The persisted call list wins over a regenerated one — it's what the
-        // host has actually been calling from.
-        callList: game.call_list as number[],
-        templateItems: items,
-        boardSize: setup.boardSize,
-        freeSpace: setup.freeSpace,
-        shuffleMode: setup.shuffleMode,
-        winPatterns: setup.winPatterns,
-        gameMode: setup.gameMode,
-        cardStyles: setup.cardStyles,
-      });
-
-      // Restore how far the host has called
-      setCalledCount(game.calls_made);
-
-      // Restore winners BEFORE marks — if this player already won, the winners
-      // list (and hasClaimed) must be populated before the marks land, or the
-      // auto-claim effect in GameView re-fires and re-writes finish_position.
-      const { data: wonRows } = await supabase
-        .from('game_players')
-        .select('player_id, finish_position, players(display_name)')
-        .eq('game_id', game.id)
-        .eq('won', true)
-        .order('finish_position', { ascending: true });
-
-      if (wonRows) {
-        const { addWinner, setHasClaimed } = useGameStore.getState();
-        for (const row of wonRows) {
-          addWinner({
-            playerId: row.player_id,
-            displayName: (row.players as { display_name: string } | null)?.display_name ?? 'Player',
-            // Only the first winner's pattern is stored on the game — close enough
-            // for the overlay label after a refresh.
-            pattern: (game.win_pattern as WinPattern | null) ?? 'row',
-          });
-          if (row.player_id === playerId) setHasClaimed(true);
-        }
+      if (error || !data) {
+        console.error('Failed to read the card template:', error);
+        return { ok: false };
       }
+      return { ok: true, value: data };
+    }, RETRY_DELAYS_MS, warnOnce);
+    if (!templateRead.ok) {
+      toast.error("Couldn't load this round. Try refreshing.");
+      return;
+    }
+    const template = templateRead.value;
+    if (useGameStore.getState().gameId === game.id) return;
 
-      // Regenerate the card — same seed + playerId always produces the same layout
-      const card = generateCard(
-        items,
-        game.seed,
-        playerId,
-        setup.boardSize,
-        setup.shuffleMode,
-        setup.freeSpace,
-      );
-      setMyCard(card);
+    // Same bootstrap the lobby/new-round paths use, seeded from the existing
+    // game so the item filter (and therefore indices) can't drift.
+    const setup = buildGameSetup(template, initialRoom.settings, game.seed);
+    const items = setup.items;
 
-      // Restore any marks the player had already made
-      const { data: gamePlayer } = await supabase
+    const { initGame, setMyCard, setCalledCount, setMyMarks } = useGameStore.getState();
+
+    initGame({
+      gameId: game.id,
+      seed: game.seed,
+      roundNumber: game.round_number,
+      // The persisted call list wins over a regenerated one — it's what the
+      // host has actually been calling from.
+      callList: game.call_list as number[],
+      templateItems: items,
+      boardSize: setup.boardSize,
+      freeSpace: setup.freeSpace,
+      shuffleMode: setup.shuffleMode,
+      winPatterns: setup.winPatterns,
+      gameMode: setup.gameMode,
+      cardStyles: setup.cardStyles,
+    });
+
+    // Restore how far the host has called
+    setCalledCount(game.calls_made);
+
+    // Regenerate the card — same seed + playerId always produces the same layout
+    const card = generateCard(
+      items,
+      game.seed,
+      playerId,
+      setup.boardSize,
+      setup.shuffleMode,
+      setup.freeSpace,
+    );
+    setMyCard(card);
+
+    // Restore winners (ourselves included) BEFORE marks — if this player
+    // already won, the winners list and hasClaimed must be populated before
+    // the marks land, or the auto-claim effect in GameView re-fires and
+    // re-writes finish_position. So a failed read here also stops the restore.
+    const othersRead = await withRetry<null>(
+      async () => ((await loadGamePlayers(supabase, game.id, playerId, { quiet: true }))
+        ? { ok: true, value: null }
+        : { ok: false }),
+      RETRY_DELAYS_MS,
+      warnOnce,
+    );
+    if (!othersRead.ok) {
+      toast.error("Couldn't restore this round. Try refreshing.");
+      return;
+    }
+    // The host moved on while we were reading; that round's restore owns the store now.
+    if (useGameStore.getState().gameId !== game.id) return;
+
+    // Our own row. maybeSingle() separates the two cases the old .single()
+    // lumped together: `data: null` with no error is a genuine first join,
+    // an error is a failed read and must never lead to a write.
+    const ownRead = await withRetry<{ marks: Json } | null>(async () => {
+      const { data, error } = await supabase
         .from('game_players')
         .select('marks')
         .match({ game_id: game.id, player_id: playerId })
-        .single();
-
-      if (gamePlayer?.marks) {
-        setMyMarks(gamePlayer.marks as number[]);
-      } else {
-        // Player is joining this game for the first time (joined room after game started)
-        supabase.from('game_players').upsert(
-          { game_id: game.id, player_id: playerId, card_data: card as unknown as import('@/lib/supabase/types').Json, marks: [], won: false },
-          { onConflict: 'game_id,player_id' },
-        ).then(({ error }) => {
-          if (error) {
-            console.error('Failed to create game_players on reconnect:', error);
-            // Generic copy — never surface raw DB error text to players.
-            toast.error('Could not join this round. Try refreshing.');
-          }
-        });
+        .maybeSingle();
+      if (error) {
+        console.error('Failed to read own game_players row:', error);
+        return { ok: false };
       }
+      return { ok: true, value: data };
+    }, RETRY_DELAYS_MS, warnOnce);
+    if (!ownRead.ok) {
+      toast.error("Couldn't restore your marks. Try refreshing.");
+      return;
+    }
+    if (useGameStore.getState().gameId !== game.id) return;
+
+    if (ownRead.value) {
+      setMyMarks((ownRead.value.marks ?? []) as number[]);
+      return;
     }
 
-    reconnect().catch((err) => console.error('Reconnect failed:', err));
+    // Player is joining this round for the first time (joined the room after
+    // it started, or missed game_started). ignoreDuplicates: if a row appeared
+    // since the read (the broadcast path raced us), it stays untouched.
+    const { error: insertError } = await supabase.from('game_players').upsert(
+      { game_id: game.id, player_id: playerId, card_data: card as unknown as Json, marks: [], won: false },
+      { onConflict: 'game_id,player_id', ignoreDuplicates: true },
+    );
+    if (insertError) {
+      console.error('Failed to create game_players on reconnect:', insertError);
+      // Generic copy — never surface raw DB error text to players.
+      toast.error('Could not join this round. Try refreshing.');
+    }
+  }
+
+  // Keep the hook's handle on the latest closure (player, room settings).
+  useEffect(() => {
+    restoreRoundRef.current = restoreLatestRound;
+  });
+
+  // Rejoin: the room is already playing but our store is empty (tab was closed
+  // mid-game, or a refresh).
+  useEffect(() => {
+    if (initialRoom.status !== 'playing' || gameId || !player) return;
+    restoreLatestRound().catch((err) => console.error('Reconnect failed:', err));
     // Deps are deliberately narrowed to the identity fields: `initialRoom` is a
     // fresh object on every server re-render, so depending on it (or on
     // `initialRoom.settings`) would re-run this whole reconnect fetch on every
@@ -228,7 +314,10 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
   async function handleMarkSquare(marks: number[]) {
     if (!player) return;
     const playerId = player.id;
-    await broadcast('mark_updated', { playerId, marks });
+    // Not awaited: with broadcast acks on, a send can wait out the socket
+    // timeout on a dying connection, and the DB write below must not queue
+    // behind it. A failed send is queued by the hook and flushed on reconnect.
+    void broadcast('mark_updated', { gameId: useGameStore.getState().gameId, playerId, marks });
 
     // Persist marks (debounced) so a refresh mid-game can restore them.
     // Reads the latest marks from the store at fire time — rapid taps collapse
@@ -264,7 +353,6 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
       return;
     }
 
-    // Persist win to DB
     const supabase = createClient();
     const finishPosition = currentWinners.length + 1;
     const gameStartedAt = useGameStore.getState().gameStartedAt;
@@ -272,43 +360,68 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
       ? Date.now() - new Date(gameStartedAt).getTime()
       : null;
 
-    supabase.from('game_players').update({
-      won: true,
-      marks: myMarks,
-      finish_position: finishPosition,
-      bingo_time_ms: bingoTimeMs,
-    }).match({ game_id: gid, player_id: player.id })
-      .then(({ error }) => {
-        if (error) {
-          console.error('Failed to persist win:', error);
-          toast.error('Your win was announced but not recorded in stats.');
-        }
-      });
-
-    // Update game status on first winner
-    if (currentWinners.length === 0) {
-      supabase.from('games').update({
-        status: 'won',
-        win_pattern: pattern,
-        ended_at: new Date().toISOString(),
-      }).eq('id', gid)
-        .then(({ error }) => {
-          if (error) {
-            console.error('Failed to update game status:', error);
-            toast.error('Round result could not be saved.');
-          }
-        });
-    }
-
-    await broadcast('bingo_confirmed', {
+    // Our own banner, fanfare and confetti come from here, not from the
+    // self-echo of the broadcast below: if the channel is mid-reconnect there
+    // is no echo, and the winner must never be the one tab that doesn't know.
+    // The echo and the DB replay are then no-ops (addWinner is idempotent).
+    useGameStore.getState().addWinner({
       playerId: player.id,
       displayName: player.display_name,
       pattern,
+      finishPosition,
+    });
+
+    // Persist the win. The DB row is what loadGamePlayers replays to any tab
+    // that missed the broadcast, so a blip must not lose it: retry on the
+    // shared backoff, and only tell the player once every attempt has failed.
+    const playerId = player.id;
+    withRetry<null>(async () => {
+      const { error } = await supabase.from('game_players').update({
+        won: true,
+        marks: myMarks,
+        finish_position: finishPosition,
+        bingo_time_ms: bingoTimeMs,
+      }).match({ game_id: gid, player_id: playerId });
+      if (error) console.error('Failed to persist win:', error);
+      return error ? { ok: false } : { ok: true, value: null };
+    }).then((result) => {
+      if (!result.ok) toast.error('Your win was announced but not recorded in stats.');
+    });
+
+    // Update game status on first winner
+    if (currentWinners.length === 0) {
+      withRetry<null>(async () => {
+        const { error } = await supabase.from('games').update({
+          status: 'won',
+          win_pattern: pattern,
+          ended_at: new Date().toISOString(),
+        }).eq('id', gid);
+        if (error) console.error('Failed to update game status:', error);
+        return error ? { ok: false } : { ok: true, value: null };
+      }).then((result) => {
+        if (!result.ok) toast.error('Round result could not be saved.');
+      });
+    }
+
+    // If this can't be sent now, the hook queues it and sends it on the next
+    // SUBSCRIBED; tabs that miss it entirely pick the win up from the DB.
+    await broadcast('bingo_confirmed', {
+      gameId: gid,
+      playerId: player.id,
+      displayName: player.display_name,
+      pattern,
+      finishPosition,
     });
   }
 
+  // A double-click on New Round / Play Again must not insert two rounds. A ref,
+  // not state, so the second click sees it before React re-renders.
+  const newRoundInFlight = useRef(false);
+
   async function handleNewRound() {
     if (!player || !initialRoom.template_id) return;
+    if (newRoundInFlight.current) return;
+    newRoundInFlight.current = true;
     try {
       const supabase = createClient();
 
@@ -334,11 +447,24 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
       const setup = buildGameSetup(template, initialRoom.settings);
       const { seed, items, callList } = setup;
 
+      // Next round number comes from the DB, not the store: a host who
+      // refreshed on Game Over has an empty store, and "0 + 1" inserted a
+      // second round 1. The unique (room_id, round_number) constraint backs
+      // this up if two hosts' tabs ever race.
+      const { data: lastRound, error: lastRoundError } = await supabase
+        .from('games')
+        .select('round_number')
+        .eq('room_id', initialRoom.id)
+        .order('round_number', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastRoundError) throw lastRoundError;
+
       const { data: game, error } = await supabase
         .from('games')
         .insert({
           room_id: initialRoom.id,
-          round_number: (useGameStore.getState().roundNumber ?? 0) + 1,
+          round_number: (lastRound?.round_number ?? 0) + 1,
           call_list: callList,
           calls_made: 0,
           seed,
@@ -379,6 +505,8 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
     } catch (err) {
       console.error('Failed to start new round:', err);
       toast.error('Could not start a new round.');
+    } finally {
+      newRoundInFlight.current = false;
     }
   }
 

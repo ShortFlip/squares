@@ -25,6 +25,9 @@ export interface GameWinner {
   playerId: string;
   displayName: string;
   pattern: WinPattern;
+  // 1 for first place, 2 for second. Optional because a legacy broadcast
+  // omits it; when known it decides the order, not the order of arrival.
+  finishPosition?: number;
 }
 
 interface GameState {
@@ -78,11 +81,12 @@ interface GameState {
   setMyMarks: (marks: number[]) => void;
   setHasClaimed: (claimed: boolean) => void;
   setOthers: (list: OtherPlayer[]) => void;
+  addPlaceholders: (list: OtherPlayer[]) => void;
   setOtherMarks: (playerId: string, marks: number[]) => void;
   resetGame: () => void;
 }
 
-const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; setCalledCount: unknown; toggleMark: unknown; addWinner: unknown; setMyMarks: unknown; setHasClaimed: unknown; setOthers: unknown; setOtherMarks: unknown; resetGame: unknown }> = {
+const initial: Omit<GameState, keyof { initGame: unknown; setMyCard: unknown; setCalledCount: unknown; toggleMark: unknown; addWinner: unknown; setMyMarks: unknown; setHasClaimed: unknown; setOthers: unknown; addPlaceholders: unknown; setOtherMarks: unknown; resetGame: unknown }> = {
   gameId: null,
   seed: null,
   roundNumber: 0,
@@ -132,11 +136,27 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ myMarks: already ? myMarks.filter((i) => i !== gridIndex) : [...myMarks, gridIndex] });
   },
 
+  /**
+   * Idempotent by player: the same win reaches a tab up to three times (the
+   * claimant adds itself at claim time, the self-echoed broadcast, and the DB
+   * replay in loadGamePlayers), and the win sequence in GameView fires on
+   * `winners.length`, so a second copy must never grow the list.
+   *
+   * A replay can also arrive out of order (second place's broadcast before a
+   * DB read that includes first place), so a winner with a known
+   * finishPosition is slotted ahead of any later-placed winner.
+   */
   addWinner: (winner) => {
     const { winners } = get();
-    if (!winners.some((w) => w.playerId === winner.playerId)) {
-      set({ winners: [...winners, winner] });
-    }
+    if (winners.some((w) => w.playerId === winner.playerId)) return;
+    const pos = winner.finishPosition;
+    const at = pos === undefined
+      ? -1
+      : winners.findIndex((w) => w.finishPosition !== undefined && w.finishPosition > pos);
+    const next = [...winners];
+    if (at === -1) next.push(winner);
+    else next.splice(at, 0, winner);
+    set({ winners: next });
   },
 
   setMyMarks: (myMarks) => set({ myMarks }),
@@ -157,6 +177,22 @@ export const useGameStore = create<GameState>((set, get) => ({
       if (!entry.synced) next[id] = entry;
     }
     for (const entry of list) next[entry.playerId] = entry;
+    set({ others: next });
+  },
+
+  /**
+   * Presence-only merge: add an unsynced entry for each player we have no entry
+   * for, and leave every existing entry alone. Presence knows who is here, not
+   * what their board looks like, so it must never replace a board the DB or a
+   * broadcast already filled in (setOthers would drop synced entries it isn't
+   * handed — the mid-round join that blanked the rail).
+   */
+  addPlaceholders: (list) => {
+    const { others } = get();
+    const fresh = list.filter((entry) => !others[entry.playerId]);
+    if (fresh.length === 0) return;
+    const next = { ...others };
+    for (const entry of fresh) next[entry.playerId] = entry;
     set({ others: next });
   },
 

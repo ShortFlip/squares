@@ -43,16 +43,47 @@ interface ItemCalledPayload {
   callsMade: number;
 }
 
+// `gameId` is optional only so a tab still running the previous build keeps
+// working; current senders always include it. It lets a receiver drop a
+// broadcast that was queued during a drop and flushed after the round moved on.
 interface BingoConfirmedPayload {
+  gameId?: string;
   playerId: string;
   displayName: string;
   pattern: WinPattern;
+  finishPosition?: number;
 }
 
 interface MarkUpdatedPayload {
+  gameId?: string;
   playerId: string;
   marks: number[];
 }
+
+/**
+ * A broadcast that could not be sent (no channel during the reconnect backoff,
+ * or the server never acked it). `key` coalesces: a newer mark_updated for the
+ * same player supersedes an older one instead of replaying every tap.
+ */
+interface PendingBroadcast {
+  key: string;
+  event: string;
+  payload: Record<string, unknown>;
+}
+
+function pendingKey(event: string, payload: Record<string, unknown>): string {
+  // Marks and call progress are "latest wins", and a player claims at most
+  // once per round; everything else (a new round, the night closing) is a
+  // one-off that must be delivered as-is.
+  if (event === 'mark_updated' || event === 'bingo_confirmed') return `${event}:${String(payload.playerId)}`;
+  if (event === 'item_called') return event;
+  return `${event}:${Date.now()}:${Math.random()}`;
+}
+
+// How long a games INSERT waits for the game_started broadcast before this tab
+// bootstraps the new round from the DB itself. The broadcast is the fast path
+// and carries the same data; this only catches the tab that missed it.
+const INSERT_FALLBACK_MS = 1500;
 
 // Resubscribe backoff after a dropped channel: 1 s, 2 s, 4 s, then 8 s forever.
 // Short enough that a blip is invisible, capped so a long outage neither hammers
@@ -74,17 +105,28 @@ export function useRealtimeRoom(
   // postgres_changes fallback seeing rooms.status change. Kept in a ref so a new
   // callback identity doesn't tear down and resubscribe the channel.
   onRoomClosed?: () => void,
+  // Fired when the room has a newer round than the one in the store (a games
+  // INSERT we never got game_started for, or a reconnect that finds one).
+  // RoomClient answers by re-running its DB bootstrap. Ref'd like onRoomClosed.
+  onRoundChanged?: () => void,
 ) {
   const [presentPlayers, setPresentPlayers] = useState<PresencePlayer[]>([]);
   const [connection, setConnection] = useState<ConnectionState>('connecting');
   const channelRef = useRef<RealtimeChannel | null>(null);
   const onRoomClosedRef = useRef(onRoomClosed);
+  const onRoundChangedRef = useRef(onRoundChanged);
+  // Survives resubscribes on purpose: the whole point is to outlive the channel
+  // that failed to send.
+  const pendingRef = useRef<PendingBroadcast[]>([]);
   // Last rooms.status we acted on, so a duplicate UPDATE (or one that merely
   // touched another column) doesn't trigger a redundant refresh.
   const lastRoomStatusRef = useRef<string | null>(null);
   useEffect(() => {
     onRoomClosedRef.current = onRoomClosed;
   }, [onRoomClosed]);
+  useEffect(() => {
+    onRoundChangedRef.current = onRoundChanged;
+  }, [onRoundChanged]);
 
   const { initGame, setMyCard, setCalledCount, addWinner } = useGameStore();
 
@@ -98,12 +140,37 @@ export function useRealtimeRoom(
     let cancelled = false;
     let attempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const insertTimers = new Set<ReturnType<typeof setTimeout>>();
+
+    /**
+     * Send everything that failed while we were down, oldest first. Stops at
+     * the first failure so order is kept and the rest wait for the next
+     * SUBSCRIBED. Anything for a round we have since left is dropped — a
+     * receiver would ignore it anyway.
+     */
+    async function flushPending(channel: RealtimeChannel) {
+      while (pendingRef.current.length > 0 && !cancelled) {
+        const next = pendingRef.current[0];
+        const forGame = next.payload.gameId;
+        if (typeof forGame === 'string' && forGame !== useGameStore.getState().gameId) {
+          pendingRef.current = pendingRef.current.filter((p) => p !== next);
+          continue;
+        }
+        const result = await channel.send({ type: 'broadcast', event: next.event, payload: next.payload });
+        if (result !== 'ok') return;
+        // By identity: a newer copy may have replaced this key meanwhile.
+        pendingRef.current = pendingRef.current.filter((p) => p !== next);
+      }
+    }
 
     function subscribe(): RealtimeChannel {
       const channel = supabase.channel(`room:${roomCode}`, {
         config: {
-          // self: true so the broadcaster also receives their own game events
-          broadcast: { self: true },
+          // self: true so the broadcaster also receives their own game events.
+          // ack: true so send() resolves 'ok' only once the server has the
+          // message; without it a send on a half-dead socket reports 'ok' and
+          // a bingo can vanish without ever reaching the retry queue.
+          broadcast: { self: true, ack: true },
           presence: { key: self.id },
         },
       });
@@ -118,13 +185,15 @@ export function useRealtimeRoom(
           // Anyone here who has no entry in the store yet gets an unsynced
           // placeholder, so the rail can show them as "syncing" rather than
           // pretending they are on 0/25 (DESIGN.md, Partial state).
+          // addPlaceholders, never setOthers: presence must not touch a board
+          // that has already synced.
           const store = useGameStore.getState();
           if (!store.gameId) return;
           const missing = present.filter(
             (p) => p.playerId !== self.id && !store.others[p.playerId],
           );
           if (missing.length === 0) return;
-          store.setOthers(
+          store.addPlaceholders(
             missing.map((p) => ({
               playerId: p.playerId,
               displayName: p.displayName,
@@ -140,6 +209,9 @@ export function useRealtimeRoom(
 
         // ── Game events ─────────────────────────────────────────────────────
         .on('broadcast', { event: 'game_started' }, async ({ payload }: { payload: GameStartedPayload }) => {
+          // Already on this round — the DB bootstrap beat the broadcast, or a
+          // queued copy arrived twice. Re-initialising would wipe our marks.
+          if (useGameStore.getState().gameId === payload.gameId) return;
           initGame(payload);
           // Generate this player's card from the shared seed + their unique ID
           const card = generateCard(
@@ -153,7 +225,9 @@ export function useRealtimeRoom(
           setMyCard(card);
 
           // Persist this player's game_players record so wins can be verified
-          // and the DB has a record of who played.
+          // and the DB has a record of who played. ignoreDuplicates makes this
+          // insert-only: if the row already exists (a rejoin, a replayed
+          // broadcast) its marks and win must survive, never reset to [] / false.
           const { error } = await supabase.from('game_players').upsert(
             {
               game_id: payload.gameId,
@@ -162,7 +236,7 @@ export function useRealtimeRoom(
               marks: [],
               won: false,
             },
-            { onConflict: 'game_id,player_id' },
+            { onConflict: 'game_id,player_id', ignoreDuplicates: true },
           );
           if (error) {
             console.error('Failed to create game_players record:', error);
@@ -180,13 +254,20 @@ export function useRealtimeRoom(
         })
 
         .on('broadcast', { event: 'bingo_confirmed' }, ({ payload }: { payload: BingoConfirmedPayload }) => {
-          addWinner(payload);
+          if (payload.gameId && payload.gameId !== useGameStore.getState().gameId) return;
+          addWinner({
+            playerId: payload.playerId,
+            displayName: payload.displayName,
+            pattern: payload.pattern,
+            finishPosition: payload.finishPosition,
+          });
         })
 
         .on('broadcast', { event: 'mark_updated' }, ({ payload }: { payload: MarkUpdatedPayload }) => {
           // Our own marks already live in myMarks; echoing them into `others`
           // would double-render us in the rail.
           if (payload.playerId === self.id) return;
+          if (payload.gameId && payload.gameId !== useGameStore.getState().gameId) return;
           useGameStore.getState().setOtherMarks(payload.playerId, payload.marks);
         })
 
@@ -198,9 +279,10 @@ export function useRealtimeRoom(
 
         // ── postgres_changes fallback ───────────────────────────────────────
         // Broadcasts are fire-and-forget: a tab that was asleep or briefly
-        // disconnected never sees them. These DB subscriptions replay the two
-        // pieces of state that actually matter (room lifecycle, call progress)
-        // so such a client self-heals instead of sitting on a stale screen.
+        // disconnected never sees them. These DB subscriptions replay the
+        // pieces of state that actually matter (room lifecycle, call progress,
+        // a new round) so such a client self-heals instead of sitting on a
+        // stale screen. Boards and winners are replayed by loadGamePlayers.
         // Both handlers are idempotent and dedupe against current state, so a
         // client that DID get the broadcast does nothing extra here.
         .on(
@@ -228,6 +310,23 @@ export function useRealtimeRoom(
             store.setCalledCount(row.calls_made);
           },
         )
+        // A new round is an INSERT, which the UPDATE listener above never sees.
+        // Give the game_started broadcast a moment to land; if it hasn't, this
+        // tab missed it and bootstraps the round from the DB instead.
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'games', filter: `room_id=eq.${roomId}` },
+          ({ new: row }: { new: { id?: string } }) => {
+            const newId = row?.id;
+            if (!newId) return;
+            const timer = setTimeout(() => {
+              insertTimers.delete(timer);
+              if (cancelled || useGameStore.getState().gameId === newId) return;
+              onRoundChangedRef.current?.();
+            }, INSERT_FALLBACK_MS);
+            insertTimers.add(timer);
+          },
+        )
 
         .subscribe(async (status) => {
           if (cancelled) return;
@@ -241,9 +340,29 @@ export function useRealtimeRoom(
               avatarUrl: self.avatar_url ?? null,
               joinedAt: new Date().toISOString(),
             });
+            // What we failed to say while down goes out first — a bingo claimed
+            // mid-drop is announced now rather than never.
+            await flushPending(channel);
+            if (cancelled) return;
             // Anything we missed while the socket was down is in the DB.
             const { gameId } = useGameStore.getState();
-            if (gameId && !cancelled) await loadGamePlayers(supabase, gameId, self.id);
+            if (!gameId) return;
+            // A round started while we were away replaces this one entirely;
+            // reloading the old round's boards would leave us marking a dead row.
+            const { data: latest, error: latestError } = await supabase
+              .from('games')
+              .select('id')
+              .eq('room_id', roomId)
+              .order('started_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (cancelled) return;
+            if (latestError) console.error('Failed to check for a newer round:', latestError);
+            if (latest && latest.id !== gameId) {
+              onRoundChangedRef.current?.();
+              return;
+            }
+            await loadGamePlayers(supabase, gameId, self.id);
             return;
           }
 
@@ -270,6 +389,7 @@ export function useRealtimeRoom(
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
+      for (const timer of insertTimers) clearTimeout(timer);
       if (channelRef.current) supabase.removeChannel(channelRef.current);
       channelRef.current = null;
     };
@@ -277,9 +397,30 @@ export function useRealtimeRoom(
     // onRoomClosed callback are read through refs/getState on purpose.
   }, [roomCode, roomId, player?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Send a broadcast event to the room channel */
-  async function broadcast(event: string, payload: Record<string, unknown>) {
-    await channelRef.current?.send({ type: 'broadcast', event, payload });
+  /**
+   * Send a broadcast event to the room channel. Never silently drops: with no
+   * channel (mid-backoff) or no server ack, the event is queued and flushed on
+   * the next SUBSCRIBED. Resolves true only when the server acked it.
+   */
+  async function broadcast(event: string, payload: Record<string, unknown>): Promise<boolean> {
+    const key = pendingKey(event, payload);
+    const enqueue = () => {
+      // Replace an older copy under the same key rather than stacking them.
+      pendingRef.current = [...pendingRef.current.filter((p) => p.key !== key), { key, event, payload }];
+    };
+    const channel = channelRef.current;
+    if (!channel) {
+      enqueue();
+      return false;
+    }
+    const result = await channel.send({ type: 'broadcast', event, payload });
+    if (result !== 'ok') {
+      enqueue();
+      return false;
+    }
+    // A queued older copy is now stale; flushing it later would rewind marks.
+    pendingRef.current = pendingRef.current.filter((p) => p.key !== key);
+    return true;
   }
 
   return {
