@@ -489,10 +489,51 @@
   outline-offset: 0;
 }
 
+/* ── Hero fit ──────────────────────────────────────────────────────────────
+   The game screen's hero column is a size container, so the grid inside it
+   can be sized from cqw/cqh — the space the layout actually left it — rather
+   than from a fixed 608px that clipped on a 1280×800 display. The formula is
+   heroGridSize() in src/lib/hero-fit.ts. */
+.hero-fit {
+  container-type: size;
+}
+
+/* ── Loading skeleton ──────────────────────────────────────────────────────
+   The board's outline while the card is restored: glass tiles, not gray
+   blocks. Built from the foreground colour rather than white so Latte gets
+   dark-on-cream tiles instead of invisible white-on-cream ones; the lit
+   corner carries a little of the theme's accent so the tiles belong to the
+   ground rather than reading as neutral gray. The breath runs as a diagonal
+   wave (each tile's delay is set inline from its row and column), which reads
+   as "loading" without anything spinning. */
+.sk-square {
+  background: linear-gradient(
+    168deg,
+    color-mix(in oklab, var(--primary) 12%, transparent) 0%,
+    color-mix(in oklab, var(--foreground) 2.5%, transparent) 100%
+  );
+  border: 1px solid color-mix(in oklab, var(--foreground) 8%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--foreground) 7%, transparent);
+  animation: sk-breathe 1.8s ease-in-out infinite both;
+}
+
+/* Placeholder bars for the name row, same material as the tiles. */
+.sk-bar {
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  animation: sk-breathe 1.8s ease-in-out infinite both;
+}
+
+@keyframes sk-breathe {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sq-marked,
   .call-flip,
-  .win-banner-enter {
+  .win-banner-enter,
+  .sk-square,
+  .sk-bar {
     animation: none;
   }
 }

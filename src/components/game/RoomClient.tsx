@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 import { GameLobby } from './GameLobby';
 import { GameView } from './GameView';
 import { GameOver } from './GameOver';
+import { GameSkeleton } from './GameSkeleton';
+import { BoardSkeleton } from '@/components/board/BoardSkeleton';
 import { useRealtimeRoom } from '@/hooks/useRealtimeRoom';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useGameStore } from '@/stores/gameStore';
@@ -566,10 +568,19 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  // Waiting on the player's identity. The template has not been read yet, so
+  // the board size is unknown and the skeleton assumes the common 5×5.
   if (isLoading || !player) {
+    // A round in progress loads into the game screen's own frame, so the
+    // board fills in where its outline already is.
+    if (initialRoom.status === 'playing') {
+      return <GameSkeleton joinCode={initialRoom.join_code} />;
+    }
+    // Lobby and Game Over have no board to hold a place for; the board's
+    // shape alone says "loading" without borrowing the game screen's chrome.
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-muted-foreground text-sm">Loading…</div>
+      <div className="min-h-screen flex items-center justify-center" role="status" aria-label="Loading the room">
+        <BoardSkeleton className="w-[240px]" />
       </div>
     );
   }
