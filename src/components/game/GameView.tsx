@@ -101,8 +101,9 @@ export function GameView({
   // ── The win sequence ────────────────────────────────────────────────────
   // Driven by `winners.length` rather than by the claim, so it runs identically
   // on every client — the winner's own tab included — and exactly once per
-  // winner. `bingo_confirmed` is broadcast with `self: true`, so the claimant
-  // receives their own event like everyone else.
+  // winner. The claimant adds itself at claim time, everyone else hears
+  // `bingo_confirmed` or replays it from the DB; addWinner is idempotent, so
+  // however many of those reach a tab, the length grows once per winner.
   const announcedRef = useRef(0);
   useEffect(() => {
     if (winners.length <= announcedRef.current) {
