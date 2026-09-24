@@ -1,0 +1,362 @@
+import { createClient } from '@/lib/supabase/client';
+import { isGameColorKey, isGameIconKey } from '@/lib/game-colors';
+import { planImport, textKey } from '@/lib/library/card-draft';
+import type { Json } from '@/lib/supabase/types';
+import type { CardStyles, CardTemplate, SquareItem } from '@/types/card';
+import type { CardMix, GameColorKey, GameIconKey, LibraryItem, Tag, TagKind } from '@/types/library';
+
+/*
+ * Every read and write the library page makes, over the browser Supabase
+ * client. Owner only: every read filters on the owner's player id.
+ *
+ * RLS lets anyone insert, but update and delete only pass when the caller's
+ * anonymous auth session is the row owner's (players.auth_id). When it is not,
+ * Postgres does not error: it silently touches 0 rows (build plan, pre-flight
+ * finding 4). So every update and delete here asks for the touched ids back
+ * with .select() and treats a short answer as a failure.
+ *
+ * Errors surface as LibraryError, whose message is written for a person and
+ * never contains the database's own text. The raw error is logged in
+ * development only.
+ */
+
+/** A failure with a message that is safe to show in a toast. */
+export class LibraryError extends Error {
+  constructor(message: string, readonly cause?: unknown) {
+    super(message);
+    this.name = 'LibraryError';
+  }
+}
+
+/** Postgres unique_violation: the (owner, lower(name|text)) indexes. */
+const UNIQUE_VIOLATION = '23505';
+
+/** PostgREST returns at most 1,000 rows per request; page through anything bigger. */
+const PAGE = 1000;
+
+/** Ids per `.in()` filter, so a bulk action on hundreds of rows never builds an overlong URL. */
+const CHUNK = 100;
+
+function logDev(context: string, error: unknown): void {
+  if (process.env.NODE_ENV !== 'production') console.error(`[library] ${context}:`, error);
+}
+
+function isUnique(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: string }).code === UNIQUE_VIOLATION;
+}
+
+/** Log the raw error, then throw the human one. */
+function fail(context: string, message: string, error?: unknown): never {
+  logDev(context, error ?? message);
+  throw new LibraryError(message, error);
+}
+
+function chunks<T>(list: T[], size = CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+/** An update or delete that came back short was blocked by RLS (or the rows are gone). */
+function expectRows(context: string, message: string, touched: number, expected: number): void {
+  if (touched < expected) fail(context, message, `expected ${expected} rows, touched ${touched}`);
+}
+
+type TagRow = { id: string; owner_id: string; name: string; kind: string; color: string | null; icon: string | null };
+
+function toTag(row: TagRow): Tag {
+  const kind: TagKind = row.kind === 'game' ? 'game' : 'tag';
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    name: row.name,
+    kind,
+    // Narrowed, never cast: a colour or icon key the app does not know draws nothing.
+    color: kind === 'game' && isGameColorKey(row.color) ? row.color : null,
+    icon: kind === 'game' && isGameIconKey(row.icon) ? row.icon : null,
+  };
+}
+
+/** The owner's items (newest first, with their extra tags) and tags (oldest first). */
+export async function loadLibrary(ownerId: string): Promise<{ items: LibraryItem[]; tags: Tag[] }> {
+  const supabase = createClient();
+  try {
+    const { data: tagRows, error: tagError } = await supabase
+      .from('tags')
+      .select('id, owner_id, name, kind, color, icon')
+      .eq('owner_id', ownerId)
+      .order('created_at', { ascending: true })
+      .order('name', { ascending: true });
+    if (tagError) throw tagError;
+
+    const items: LibraryItem[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('library_items')
+        .select('id, text, game_tag_id, library_item_tags ( tag_id )')
+        .eq('owner_id', ownerId)
+        .order('created_at', { ascending: false })
+        .order('text', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      for (const row of data ?? []) {
+        items.push({
+          id: row.id,
+          text: row.text,
+          gameTagId: row.game_tag_id,
+          tagIds: (row.library_item_tags ?? []).map((link) => link.tag_id),
+        });
+      }
+      if (!data || data.length < PAGE) break;
+    }
+
+    return { items, tags: (tagRows ?? []).map(toTag) };
+  } catch (error) {
+    fail('loadLibrary', 'Could not load your library. Refresh to try again.', error);
+  }
+}
+
+/**
+ * Add a pasted list. Skips anything the owner already has (trimmed,
+ * case-insensitive) and repeats within the paste, then tags what was added.
+ * The DB's unique index is the backstop: a text that slipped in meanwhile
+ * comes back as 23505 and is counted as skipped, not as a failure.
+ */
+export async function importItems(
+  ownerId: string,
+  texts: string[],
+  gameTagId: string | null,
+  tagIds: string[],
+): Promise<{ added: number; skipped: number; items: LibraryItem[] }> {
+  const supabase = createClient();
+  const message = 'Could not import that list. Nothing was added.';
+
+  const existing: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('library_items')
+      .select('text')
+      .eq('owner_id', ownerId)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) fail('importItems: existing', message, error);
+    existing.push(...(data ?? []).map((row) => row.text));
+    if (!data || data.length < PAGE) break;
+  }
+
+  const { fresh, skipped: alreadyThere } = planImport(texts, existing);
+  let skipped = alreadyThere;
+  const inserted: { id: string; text: string; game_tag_id: string | null }[] = [];
+
+  const rows = fresh.map((text) => ({ owner_id: ownerId, text, game_tag_id: gameTagId }));
+  if (rows.length > 0) {
+    const { data, error } = await supabase
+      .from('library_items')
+      .insert(rows)
+      .select('id, text, game_tag_id');
+    if (!error) {
+      inserted.push(...(data ?? []));
+    } else if (isUnique(error)) {
+      // Someone (another tab) added one of these meanwhile and the whole batch
+      // was refused. Go one by one so only the clashes are skipped.
+      for (const row of rows) {
+        const one = await supabase.from('library_items').insert(row).select('id, text, game_tag_id').single();
+        if (one.error && isUnique(one.error)) skipped++;
+        else if (one.error) fail('importItems: insert one', message, one.error);
+        else inserted.push(one.data);
+      }
+    } else {
+      fail('importItems: insert', message, error);
+    }
+  }
+
+  const links = inserted.flatMap((item) => tagIds.map((tagId) => ({ item_id: item.id, tag_id: tagId })));
+  for (const batch of chunks(links, 500)) {
+    const { error } = await supabase.from('library_item_tags').insert(batch);
+    if (error) fail('importItems: tags', 'The items were added, but their tags were not. Add the tags from the list.', error);
+  }
+
+  return {
+    added: inserted.length,
+    skipped,
+    items: inserted.map((row) => ({ id: row.id, text: row.text, gameTagId: row.game_tag_id, tagIds: [...tagIds] })),
+  };
+}
+
+/** Rename one item. The text is trimmed and must not be blank or already in the library. */
+export async function updateItemText(itemId: string, text: string): Promise<string> {
+  const next = text.trim();
+  if (!next) throw new LibraryError('An item needs some text.');
+  const { data, error } = await createClient()
+    .from('library_items')
+    .update({ text: next })
+    .eq('id', itemId)
+    .select('id');
+  if (error && isUnique(error)) fail('updateItemText', `You already have an item called “${next}”.`, error);
+  if (error) fail('updateItemText', 'Could not rename that item.', error);
+  expectRows('updateItemText', 'Could not rename that item. Refresh and try again.', data?.length ?? 0, 1);
+  return next;
+}
+
+/** Put items in a game, or in No Game with null. */
+export async function setGame(itemIds: string[], gameTagId: string | null): Promise<void> {
+  const supabase = createClient();
+  const message = itemIds.length === 1 ? 'Could not change that item’s game.' : 'Could not change the game for every item.';
+  let touched = 0;
+  for (const ids of chunks(itemIds)) {
+    const { data, error } = await supabase
+      .from('library_items')
+      .update({ game_tag_id: gameTagId })
+      .in('id', ids)
+      .select('id');
+    if (error) fail('setGame', message, error);
+    touched += data?.length ?? 0;
+  }
+  expectRows('setGame', `${message} Refresh and try again.`, touched, itemIds.length);
+}
+
+/** Add an extra tag to items. Items that already carry it are left alone. */
+export async function addTag(itemIds: string[], tagId: string): Promise<void> {
+  const supabase = createClient();
+  for (const ids of chunks(itemIds)) {
+    // An insert is never silently blocked (insert is open), so a plain error
+    // check is enough; ignoreDuplicates makes re-tagging a no-op, not a clash.
+    const { error } = await supabase
+      .from('library_item_tags')
+      .upsert(ids.map((id) => ({ item_id: id, tag_id: tagId })), { onConflict: 'item_id,tag_id', ignoreDuplicates: true });
+    if (error) fail('addTag', 'Could not add that tag.', error);
+  }
+}
+
+/** Remove an extra tag. Pass only items that carry it: every one must come back as removed. */
+export async function removeTag(itemIds: string[], tagId: string): Promise<void> {
+  const supabase = createClient();
+  let touched = 0;
+  for (const ids of chunks(itemIds)) {
+    const { data, error } = await supabase
+      .from('library_item_tags')
+      .delete()
+      .eq('tag_id', tagId)
+      .in('item_id', ids)
+      .select('item_id');
+    if (error) fail('removeTag', 'Could not remove that tag.', error);
+    touched += data?.length ?? 0;
+  }
+  expectRows('removeTag', 'Could not remove that tag. Refresh and try again.', touched, itemIds.length);
+}
+
+/** Delete items. Saved cards keep their own copies, so no card changes. */
+export async function deleteItems(itemIds: string[]): Promise<void> {
+  const supabase = createClient();
+  let touched = 0;
+  for (const ids of chunks(itemIds)) {
+    const { data, error } = await supabase.from('library_items').delete().in('id', ids).select('id');
+    if (error) fail('deleteItems', 'Could not delete those items.', error);
+    touched += data?.length ?? 0;
+  }
+  expectRows('deleteItems', 'Could not delete every item. Refresh and try again.', touched, itemIds.length);
+}
+
+/** Create a game (colour + icon required) or an extra tag. Names are unique per owner, ignoring case. */
+export async function createTag(
+  ownerId: string,
+  input: { name: string; kind: TagKind; color?: GameColorKey | null; icon?: GameIconKey | null },
+): Promise<Tag> {
+  const name = input.name.trim();
+  if (!name) throw new LibraryError('Give it a name first.');
+  if (input.kind === 'game' && (!input.color || !input.icon)) {
+    throw new LibraryError('Pick a colour and an icon for the game.');
+  }
+  const { data, error } = await createClient()
+    .from('tags')
+    .insert({
+      owner_id: ownerId,
+      name,
+      kind: input.kind,
+      color: input.kind === 'game' ? input.color : null,
+      icon: input.kind === 'game' ? input.icon : null,
+    })
+    .select('id, owner_id, name, kind, color, icon')
+    .single();
+  if (error && isUnique(error)) fail('createTag', `You already have a tag called “${name}”.`, error);
+  if (error || !data) fail('createTag', input.kind === 'game' ? 'Could not create that game.' : 'Could not create that tag.', error);
+  return toTag(data);
+}
+
+/** The owner's saved cards (saved = true), newest first. */
+export async function loadSavedCards(ownerId: string): Promise<CardTemplate[]> {
+  const { data, error } = await createClient()
+    .from('card_templates')
+    .select('*')
+    .eq('creator_id', ownerId)
+    .eq('saved', true)
+    .order('created_at', { ascending: false });
+  if (error) fail('loadSavedCards', 'Could not load your saved cards.', error);
+  return data ?? [];
+}
+
+/** One card by id, owner only. Used by /library?card=<id>. */
+export async function loadCard(ownerId: string, cardId: string): Promise<CardTemplate | null> {
+  const { data, error } = await createClient()
+    .from('card_templates')
+    .select('*')
+    .eq('id', cardId)
+    .eq('creator_id', ownerId)
+    .maybeSingle();
+  if (error) fail('loadCard', 'Could not open that card.', error);
+  return data;
+}
+
+export interface SaveCardInput {
+  /** Update this card; omit to insert a new one. */
+  id?: string | null;
+  ownerId: string;
+  name: string;
+  boardSize: number;
+  freeSpace: boolean;
+  styles: CardStyles;
+  items: SquareItem[];
+  mix: CardMix;
+}
+
+/** Insert a saved card, or update one by id. Returns the card's id. */
+export async function saveCard(input: SaveCardInput): Promise<string> {
+  const supabase = createClient();
+  const name = input.name.trim();
+  const payload = {
+    name,
+    board_size: input.boardSize,
+    free_space: input.freeSpace,
+    shuffle_mode: 'full',
+    styles: input.styles as unknown as Json,
+    items: input.items as unknown as Json,
+    mix: input.mix as unknown as Json,
+    saved: true,
+    is_public: false,
+  };
+
+  if (input.id) {
+    const { data, error } = await supabase
+      .from('card_templates')
+      .update(payload)
+      .eq('id', input.id)
+      .select('id');
+    if (error) fail('saveCard: update', `Could not save “${name}”.`, error);
+    expectRows('saveCard: update', `Could not save “${name}”. Refresh and try again.`, data?.length ?? 0, 1);
+    return input.id;
+  }
+
+  const { data, error } = await supabase
+    .from('card_templates')
+    .insert({ ...payload, creator_id: input.ownerId })
+    .select('id')
+    .single();
+  if (error || !data) fail('saveCard: insert', `Could not save “${name}”.`, error);
+  return data.id;
+}
+
+/** Same name, ignoring case and outer spaces. Saved-card and tag names clash on this. */
+export function sameName(a: string, b: string): boolean {
+  return textKey(a) === textKey(b);
+}
