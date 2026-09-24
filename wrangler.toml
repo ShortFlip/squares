@@ -1,12 +1,26 @@
 name = "squares"
-main = ".open-next/worker.js"
+# custom-worker.ts wraps OpenNext's generated .open-next/worker.js: it forwards
+# every request to it unchanged and adds the Supabase keepalive Cron handler.
+main = "custom-worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+
+# Keep dashboard/CLI-set plain-text vars on deploys that don't pass them.
+# SUPABASE_URL and SUPABASE_ANON_KEY (read by the Cron handler) are set by the
+# master deploy with `wrangler deploy --var`, never written here because this
+# repo is public. Without keep_vars, a local `npm run cf:deploy` would silently
+# delete them and the keepalive would start failing.
+keep_vars = true
 
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
 
-# Runtime environment variables — set secrets via:
-#   wrangler secret put NEXT_PUBLIC_SUPABASE_URL
-# or in the Cloudflare Workers dashboard under Settings → Variables
+# Daily Supabase keepalive (15:00 UTC). A second, independent pinger to
+# .github/workflows/keepalive.yml, which GitHub disables after 60 days without
+# repo activity. See src/lib/keepalive.ts.
+[triggers]
+crons = ["0 15 * * *"]
+
+# NEXT_PUBLIC_* Supabase values are inlined into the Next bundle at build time
+# (GitHub secrets in deploy.yml), so the app itself needs no runtime vars.

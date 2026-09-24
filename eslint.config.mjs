@@ -14,6 +14,10 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Local Playwright driver scripts (gitignored, CommonJS by necessity).
     ".playwright-mcp/**",
+    // OpenNext / wrangler build output (gitignored, generated). Without these a
+    // local `npm run lint` after `npm run cf:build` lints the whole server bundle.
+    ".open-next/**",
+    ".wrangler/**",
   ]),
 ]);
 

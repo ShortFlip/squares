@@ -169,7 +169,7 @@ squares/
 │   │   │   ├── game-setup.ts         # Shared round bootstrap: seed, items, call list
 │   │   │   ├── game-players.ts       # loadGamePlayers — everyone's cards + marks
 │   │   │   ├── import.ts             # parseImport — newlines then commas, dedupe
-│   │   │   └── __tests__/            # Vitest: shuffle, win-detection, call-list, import
+│   │   │   └── __tests__/            # Vitest: shuffle, game-setup, win-detection, call-list, import
 │   │   ├── utils/
 │   │   │   ├── browser-id.ts         # localStorage UUID identity
 │   │   │   ├── last-room.ts          # Remembers the last room for the Rejoin chip
@@ -181,6 +181,7 @@ squares/
 │   │   ├── sound.ts                  # Web Audio synthesis — no audio files
 │   │   ├── win-confetti.ts           # The two-cannon burst and the second-place burst
 │   │   ├── achievements.ts           # Badges derived from stats
+│   │   ├── keepalive.ts              # Supabase ping for the Worker Cron Trigger (pure, no Next)
 │   │   └── dev-state.ts              # `?state=` harness, DEV-only, stripped from prod
 │   │
 │   ├── stores/                       # Zustand: gameStore, editorStore, playerStore
@@ -190,7 +191,9 @@ squares/
 ├── supabase/migrations/              # 0001 schema → RLS fixes → avatars →
 │                                     # enable_realtime → claim_codes
 ├── .design/                          # UPGRADE-PLAN.md, mockups/SPEC.md, refs (gitignored)
-├── .github/workflows/deploy.yml      # Build + deploy to Cloudflare Workers on push to master
+├── .github/workflows/deploy.yml      # PR: gates + bundle dry run. master: gates + deploy
+├── .github/workflows/keepalive.yml   # Twice-weekly Supabase ping (one of two pingers)
+├── custom-worker.ts                  # Worker entry: OpenNext fetch + keepalive Cron handler
 ├── public/                           # Static SVGs only — sounds are synthesized
 ├── CLAUDE.md                         # ← You are here
 ├── DESIGN.md                         # Design intent; Part 1 binding
@@ -262,9 +265,15 @@ Running locally, type check, lint and migrations: `README.md`.
 
 ## Deployment
 
-Push to `master` and `.github/workflows/deploy.yml` runs `npm run cf:deploy`
-(OpenNext build → `wrangler deploy`) onto **Cloudflare Workers**. The
-`NEXT_PUBLIC_*` Supabase values are repo secrets, baked in at build time. There
+Every PR into `master` runs `.github/workflows/deploy.yml`'s gates (`npm test`,
+`tsc --noEmit`, lint, `cf:build`, `wrangler deploy --dry-run`); a push to
+`master` runs the same gates and then `wrangler deploy` onto **Cloudflare
+Workers**. The `NEXT_PUBLIC_*` Supabase values are repo secrets, baked in at
+build time. The Worker entry is `custom-worker.ts`, which wraps OpenNext's
+generated `.open-next/worker.js` and adds a daily Cron Trigger that pings
+Supabase (`src/lib/keepalive.ts`); its `SUPABASE_URL`/`SUPABASE_ANON_KEY` are
+runtime vars passed with `--var` on the master deploy, never committed, and
+`keep_vars` stops a local `cf:deploy` from wiping them. There
 is no Docker image and nothing runs on Sanctuary — the plan to self-host behind
 a Cloudflare tunnel was dropped in favour of Workers.
 
@@ -272,8 +281,9 @@ a Cloudflare tunnel was dropped in favour of Workers.
 
 ## Testing Strategy
 
-- **Unit tests (in place):** `npm test` runs Vitest over card generation and
-  shuffling, win detection and `bestLine`, the call list, and the import parser.
+- **Unit tests (in place, gate every PR):** `npm test` runs Vitest over card
+  generation and shuffling, game setup, win detection and `bestLine`, the call
+  list, the import parser and the keepalive ping.
 - **Live gates (in place, not in CI):** each phase is proved against two real
   browser contexts via `.playwright-mcp/pw.cjs` (a CDP driver) pointed at the dev
   server, printing `GATE <name>: PASS/FAIL` lines.

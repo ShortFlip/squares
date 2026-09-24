@@ -1,8 +1,21 @@
+# Every PR into master runs the same gates as a deploy and then proves the
+# Worker bundles (dry run, nothing uploaded), so the PR shows red/green before
+# merge. A push to master runs the gates again and deploys.
 name: Deploy to Cloudflare Workers
 
 on:
   push:
     branches: [master]
+  pull_request:
+    branches: [master]
+
+# One run per ref. A new push to a PR cancels its stale run, but a master
+# deploy is never cancelled mid-flight: a half-finished `wrangler deploy` is
+# worse than waiting, so later master pushes wait behind it (GitHub keeps only
+# the newest waiting run, which is the one worth deploying anyway).
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   deploy:
@@ -18,11 +31,46 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and deploy
-        run: npm run cf:deploy
+      # Cheapest gates first so a broken PR fails in seconds, not after a build.
+      - name: Unit tests
+        run: npm test
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build (OpenNext)
+        run: npm run cf:build
+        env:
+          # NEXT_PUBLIC_* are inlined into the client bundle at build time.
+          # Secrets are not passed to PRs from forks, so a fork PR builds with
+          # these empty; that's fine for a bundle check.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      # Bundles custom-worker.ts + .open-next/worker.js exactly as a deploy
+      # would, without uploading. --dry-run skips auth, so no Cloudflare
+      # credentials are needed (or given) on PR runs.
+      - name: Bundle check (dry run)
+        if: github.event_name == 'pull_request'
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
+
+      - name: Deploy
+        if: github.event_name == 'push'
+        # SUPABASE_URL / SUPABASE_ANON_KEY are runtime vars for the keepalive
+        # Cron handler, which can't see the build-time NEXT_PUBLIC_* copies.
+        # They go in as --var rather than wrangler.toml because this repo is
+        # public. wrangler splits KEY:VALUE on the first colon only, so the
+        # https:// in the URL survives. keep_vars in wrangler.toml stops a
+        # local deploy from wiping them.
+        run: >-
+          npx wrangler deploy
+          --var "SUPABASE_URL:${SUPABASE_URL}"
+          --var "SUPABASE_ANON_KEY:${SUPABASE_ANON_KEY}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # Build-time env vars (NEXT_PUBLIC_* are baked in at build time)
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
