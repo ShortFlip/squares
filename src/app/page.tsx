@@ -180,7 +180,7 @@ function HomePageContent() {
         <div className="grid grid-cols-2 gap-3">
           <Link
             href="/history"
-            className="glass group flex items-center gap-3.5 rounded-xl px-4 py-3.5 transition-colors duration-150 hover:border-primary/45! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="glass glass-tile group flex items-center gap-3.5 rounded-xl px-4 py-3.5 transition-colors duration-150 hover:border-primary/45! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span className="grid size-10 shrink-0 place-items-center rounded-[10px] border border-primary/40 bg-primary/15">
               <History className="size-5 text-primary" />
@@ -193,7 +193,7 @@ function HomePageContent() {
           </Link>
           <Link
             href="/leaderboard"
-            className="glass group flex items-center gap-3.5 rounded-xl px-4 py-3.5 transition-colors duration-150 hover:border-gold/45! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="glass glass-tile group flex items-center gap-3.5 rounded-xl px-4 py-3.5 transition-colors duration-150 hover:border-gold/45! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span className="grid size-10 shrink-0 place-items-center rounded-[10px] border border-gold/40 bg-gold/15">
               <Trophy className="size-5 text-gold" />
