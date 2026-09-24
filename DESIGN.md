@@ -305,6 +305,14 @@ One line each, dated, so they are not relitigated.
   Tonight's Results button between Play Again and Back to Home. It opens
   `/history?night=<room id>` with that night expanded. The "no history chrome
   on the game screen" rule covers live play, not Game Over.
+- **History text floor and card snapshot (2026-09-24).** Nothing on History
+  is under 13px except the `1ST`/`2ND` pill, which follows the app-wide pill
+  scale. The Your Card snapshot is 480px wide with the hero board's square
+  text sizing, so every word fits whole; it must not shrink back to thumbnail
+  size, where long words broke mid-word.
+- **Latte landing tiles are flat (2026-09-24).** On Latte the History and
+  Leaderboard tiles drop the glass drop shadow (`.glass-tile`) to match the
+  flat Host/Join cards above them. Latte glass everywhere else is unchanged.
 
 ---
 

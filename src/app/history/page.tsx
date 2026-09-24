@@ -314,7 +314,7 @@ function NightCard({
               <span className="text-muted-foreground font-normal"> · {night.templateName}</span>
             )}
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[13px] text-muted-foreground">
             {date && date.toLocaleDateString()}
             {' · '}
             <span className="font-mono">{night.rounds.length}</span>
@@ -362,10 +362,10 @@ function RoundRow({ round, night, myId }: { round: Round; night: Night; myId: st
   return (
     <div className={cn('px-4 py-3 space-y-2', cancelled && 'opacity-60')}>
       <div className="flex items-center justify-between">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">
+        <p className="text-[13px] uppercase tracking-widest text-muted-foreground">
           Round <span className="font-mono">{round.roundNumber}</span>
         </p>
-        {cancelled && <span className="text-xs text-muted-foreground">No winner</span>}
+        {cancelled && <span className="text-[13px] text-muted-foreground">No winner</span>}
       </div>
 
       <ul className="space-y-1">
@@ -393,14 +393,14 @@ function RoundRow({ round, night, myId }: { round: Round; night: Night; myId: st
                   {p.finishPosition === 2 ? '2ND' : '1ST'}
                 </span>
                 {round.winPattern && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-[13px] text-muted-foreground">
                     {formatPattern(round.winPattern)}
                   </span>
                 )}
               </>
             )}
 
-            <span className="ml-auto font-mono text-xs text-muted-foreground">
+            <span className="ml-auto font-mono text-[13px] text-muted-foreground">
               {p.marks}/{p.total}
             </span>
           </li>
@@ -427,9 +427,13 @@ function CardSnapshot({ entry, night }: { entry: RoundPlayer; night: Night }) {
 
   return (
     <div className="pt-2">
-      <p className="text-xs text-muted-foreground mb-2 uppercase tracking-widest">Your card</p>
+      <p className="text-[13px] text-muted-foreground mb-2 uppercase tracking-widest">Your card</p>
       {/* pointer-events-none prevents interaction with the snapshot */}
       <div className="pointer-events-none">
+        {/* The same text sizing as the hero board in GameView, at a width that
+            gives it the ~92px squares that sizing needs. At the old 320px the
+            squares were ~60px and the fluid size floored at 9.6px, so a word
+            like "leaderboard" no longer fitted and broke mid-word. */}
         <BingoBoard
           items={items}
           boardSize={night.boardSize}
@@ -438,7 +442,13 @@ function CardSnapshot({ entry, night }: { entry: RoundPlayer; night: Night }) {
           styles={night.styles}
           markedIndices={markedIndices}
           calledIndices={markedIndices}
-          className="max-w-xs"
+          className="max-w-[480px]"
+          squareClassName={cn(
+            'rounded-[6px]',
+            night.boardSize >= 6
+              ? 'text-[clamp(10px,12cqw,11px)]'
+              : 'text-[clamp(10px,13cqw,12px)]',
+          )}
         />
       </div>
     </div>

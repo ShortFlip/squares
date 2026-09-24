@@ -408,6 +408,13 @@
   border-color: rgba(0, 0, 0, 0.08);
 }
 
+/* The landing History/Leaderboard tiles sit right under the flat Host/Join
+   cards. On cream the glass drop shadow reads as a soft grey smudge the cards
+   don't have, so Latte drops it for these tiles only. Glass elsewhere keeps it. */
+:root:not(.dark) .glass-tile {
+  box-shadow: none;
+}
+
 /* ── Hot lane ──────────────────────────────────────────────────────────────
    The unmarked squares of the line you are closest to. A flat 7% amber wash:
    readable from across the room, never loud enough to compete with the ring
