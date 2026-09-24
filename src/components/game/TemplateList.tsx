@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, Library } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { usePlayer } from '@/hooks/usePlayer';
@@ -55,13 +55,23 @@ export function TemplateList() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-lg font-bold">Your Cards</h2>
-        <Link
-          href="/create"
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-        >
-          <Plus className="w-3.5 h-3.5 mr-1.5" />
-          New Card
-        </Link>
+        <div className="flex items-center gap-2">
+          {/* The library is where cards get built now; Phase 3 turns this list into Saved Cards. */}
+          <Link
+            href="/library"
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <Library className="w-3.5 h-3.5 mr-1.5" />
+            Open Library
+          </Link>
+          <Link
+            href="/create"
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            New Card
+          </Link>
+        </div>
       </div>
 
       {templates.length === 0 ? (
