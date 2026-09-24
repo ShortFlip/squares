@@ -292,6 +292,20 @@ covers the board.
   which would be a lie about someone's board. They also sort to the bottom of
   the rail: an unknown board must not outrank a known one.
 
+### Rulings
+
+One line each, dated, so they are not relitigated.
+
+- **Landing History and Leaderboard tiles (2026-09-24).** Colour identity, no
+  glow: a tinted icon plate per link (violet History, gold Leaderboard),
+  display-face title at 16, subtitle at 13. They stay smaller than Host/Join,
+  because they are aftermath. Rejected: promoting them to peer cards with a
+  glow, since the glow belongs to the win.
+- **Game Over links to tonight's history (2026-09-24).** Everyone gets a
+  Tonight's Results button between Play Again and Back to Home. It opens
+  `/history?night=<room id>` with that night expanded. The "no history chrome
+  on the game screen" rule covers live play, not Game Over.
+
 ---
 
 ## Build findings (2026-09-07 audit, feed into the plan)
