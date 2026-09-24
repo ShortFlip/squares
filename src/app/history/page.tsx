@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { usePlayer } from '@/hooks/usePlayer';
@@ -69,11 +70,16 @@ interface GameEmbed {
   } | null;
 }
 
-export default function HistoryPage() {
+// Separated into its own component because useSearchParams() requires a Suspense boundary
+function HistoryPageContent() {
   const { player, isLoading: playerLoading } = usePlayer();
+  const searchParams = useSearchParams();
+  // `?night=<room id>` comes from Game Over's Tonight's Results: open that night
+  // straight away instead of making the player hunt for it.
+  const linkedNightId = searchParams.get('night');
   const [nights, setNights] = useState<Night[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(linkedNightId);
 
   useEffect(() => {
     if (!player) return;
@@ -265,6 +271,14 @@ export default function HistoryPage() {
   );
 }
 
+export default function HistoryPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen" />}>
+      <HistoryPageContent />
+    </Suspense>
+  );
+}
+
 function NightCard({
   night,
   myId,
@@ -281,6 +295,7 @@ function NightCard({
 
   return (
     <li
+      data-night={night.roomId}
       className={cn(
         'rounded-xl border bg-card overflow-hidden transition-colors',
         iWon ? 'border-accent/40' : 'border-border',
@@ -289,6 +304,7 @@ function NightCard({
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={isExpanded}
         className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
       >
         <div className="flex-1 min-w-0 space-y-0.5">

@@ -171,27 +171,38 @@ function HomePageContent() {
 
         </div>
 
-        {/* ── Quick nav ── */}
+        {/* ── Quick nav ──
+            Aftermath, so these stay smaller than Host/Join — but each link gets
+            its own colour so it reads as a destination, not a footer. Violet for
+            History (the app accent), gold for Leaderboard (the win metal). The
+            `!` on the hover border is needed because `.glass` is unlayered CSS
+            and would otherwise beat the utility. */}
         <div className="grid grid-cols-2 gap-3">
           <Link
             href="/history"
-            className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted/50 transition-colors"
+            className="glass group flex items-center gap-3.5 rounded-xl px-4 py-3.5 transition-colors duration-150 hover:border-primary/45! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <History className="w-4 h-4 text-muted-foreground shrink-0" />
-            <div>
-              <p className="text-sm font-medium">Game History</p>
-              <p className="text-xs text-muted-foreground">Your past games</p>
+            <span className="grid size-10 shrink-0 place-items-center rounded-[10px] border border-primary/40 bg-primary/15">
+              <History className="size-5 text-primary" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-display text-base font-bold">Game History</p>
+              <p className="text-[13px] text-muted-foreground">Your past games</p>
             </div>
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-colors duration-150 group-hover:text-foreground" />
           </Link>
           <Link
             href="/leaderboard"
-            className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 hover:bg-muted/50 transition-colors"
+            className="glass group flex items-center gap-3.5 rounded-xl px-4 py-3.5 transition-colors duration-150 hover:border-gold/45! focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Trophy className="w-4 h-4 text-muted-foreground shrink-0" />
-            <div>
-              <p className="text-sm font-medium">Leaderboard</p>
-              <p className="text-xs text-muted-foreground">All-time rankings</p>
+            <span className="grid size-10 shrink-0 place-items-center rounded-[10px] border border-gold/40 bg-gold/15">
+              <Trophy className="size-5 text-gold" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-display text-base font-bold">Leaderboard</p>
+              <p className="text-[13px] text-muted-foreground">All-time rankings</p>
             </div>
+            <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-colors duration-150 group-hover:text-foreground" />
           </Link>
         </div>
 

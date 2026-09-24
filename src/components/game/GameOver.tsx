@@ -1,8 +1,10 @@
 'use client';
 
-import { Trophy, Home, RotateCcw } from 'lucide-react';
+import { Trophy, Home, RotateCcw, History } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { useGameStore } from '@/stores/gameStore';
 import type { Room } from '@/types/game';
@@ -37,7 +39,7 @@ export function GameOver({ room, currentPlayerId, presentPlayers, onNewRound }: 
 
         {/* Winner info */}
         <div className="space-y-3">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
+          <p className="text-[13px] uppercase tracking-widest text-muted-foreground font-medium">
             Round {roundNumber} — Game Over
           </p>
           {winner ? (
@@ -68,7 +70,7 @@ export function GameOver({ room, currentPlayerId, presentPlayers, onNewRound }: 
           )}
         </div>
 
-        {/* Actions */}
+        {/* Actions — all one size so the stack reads as a set. */}
         <div className="flex flex-col gap-3">
           {isHost && onNewRound && (
             <Button size="lg" className="w-full gap-2" onClick={onNewRound}>
@@ -79,7 +81,17 @@ export function GameOver({ room, currentPlayerId, presentPlayers, onNewRound }: 
           {!isHost && (
             <p className="text-sm text-muted-foreground">Waiting for the host to start a new game…</p>
           )}
-          <Button variant="outline" className="w-full gap-2" onClick={() => router.push('/')}>
+          {/* Everyone gets this, not just the host: the night is over, so the
+              no-history-on-the-game-screen rule no longer applies. Linking by
+              room id (a night is a room) opens exactly this night in /history. */}
+          <Link
+            href={`/history?night=${room.id}`}
+            className={cn(buttonVariants({ variant: 'outline', size: 'lg' }), 'w-full gap-2')}
+          >
+            <History className="w-4 h-4" />
+            Tonight&apos;s Results
+          </Link>
+          <Button variant="outline" size="lg" className="w-full gap-2" onClick={() => router.push('/')}>
             <Home className="w-4 h-4" />
             Back to Home
           </Button>
