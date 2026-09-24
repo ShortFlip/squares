@@ -1,5 +1,6 @@
 import { allocateMix, buildCardSet, countByLane, type LaneKey } from '@/lib/game/card-builder';
-import type { SquareItem } from '@/types/card';
+import { CARD_PRESETS } from '@/lib/card-styles';
+import type { CardStyles, SquareItem } from '@/types/card';
 import type { CardMix, LegendEntry, LibraryItem, MixLane, Tag } from '@/types/library';
 
 /*
@@ -317,6 +318,17 @@ export function buildLegend(set: SquareItem[], tags: Tag[]): LegendEntry[] {
     legend.push({ gameTagId: tag.id, name: tag.name, color: tag.color, icon: tag.icon });
   }
   return legend;
+}
+
+/**
+ * The styles a card built on the library page carries: its preset's colours,
+ * the preset id, and the legend of the games on it. Save Card and Host This
+ * Card both write exactly this, so a hosted copy looks the same as a saved one.
+ * An unknown preset id falls back to the first preset (Default).
+ */
+export function cardStyles(presetId: string, set: SquareItem[], tags: Tag[]): CardStyles {
+  const preset = CARD_PRESETS.find((p) => p.id === presetId) ?? CARD_PRESETS[0];
+  return { ...preset.styles, preset: preset.id, legend: buildLegend(set, tags) };
 }
 
 /** What Save writes into card_templates.items: text plus the library link, nothing else. */

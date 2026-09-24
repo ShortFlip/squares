@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/client';
 import { isGameColorKey, isGameIconKey } from '@/lib/game-colors';
 import { planImport, textKey } from '@/lib/library/card-draft';
+import { hostCardName, type HostDraft } from '@/lib/library/hosting';
 import type { Json } from '@/lib/supabase/types';
 import type { CardStyles, CardTemplate, SquareItem } from '@/types/card';
 import type { CardMix, GameColorKey, GameIconKey, LibraryItem, Tag, TagKind } from '@/types/library';
@@ -354,6 +355,80 @@ export async function saveCard(input: SaveCardInput): Promise<string> {
     .single();
   if (error || !data) fail('saveCard: insert', `Could not save “${name}”.`, error);
   return data.id;
+}
+
+/**
+ * Take a card off Saved Cards. Never a delete: past nights read the row
+ * through rooms.template_id for their name, style and legend, so it stays,
+ * as a saved = false copy. Owner only, so a blocked update (0 rows) fails.
+ */
+export async function unsaveCard(cardId: string, name: string): Promise<void> {
+  const { data, error } = await createClient()
+    .from('card_templates')
+    .update({ saved: false })
+    .eq('id', cardId)
+    .select('id');
+  if (error) fail('unsaveCard', `Could not remove “${name}”.`, error);
+  expectRows('unsaveCard', `Could not remove “${name}”. Refresh and try again.`, data?.length ?? 0, 1);
+}
+
+/**
+ * Insert an unsaved card as its own card_templates row (saved = false), so the
+ * room hosting it has a template_id like every other room. Returns the new id.
+ */
+export async function insertUnsavedCard(ownerId: string, draft: HostDraft): Promise<string> {
+  const { data, error } = await createClient()
+    .from('card_templates')
+    .insert({
+      creator_id: ownerId,
+      name: hostCardName(draft.name),
+      board_size: draft.boardSize,
+      free_space: draft.freeSpace,
+      shuffle_mode: 'full',
+      styles: draft.styles as unknown as Json,
+      items: draft.items as unknown as Json,
+      mix: draft.mix as unknown as Json,
+      saved: false,
+      is_public: false,
+    })
+    .select('id')
+    .single();
+  if (error || !data) fail('insertUnsavedCard', 'Could not set up this card for the room.', error);
+  return data.id;
+}
+
+/**
+ * What Create Room offers: my saved cards (newest first) and the card behind
+ * my most recently hosted room, which may be an unsaved copy. The latest
+ * room's card is null when that room has no template_id or the row is gone.
+ */
+export async function loadHostChoices(
+  ownerId: string,
+): Promise<{ saved: CardTemplate[]; lastRoomCard: CardTemplate | null }> {
+  const supabase = createClient();
+  const saved = await loadSavedCards(ownerId);
+
+  const { data: room, error: roomError } = await supabase
+    .from('rooms')
+    .select('template_id')
+    .eq('host_id', ownerId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (roomError) fail('loadHostChoices: room', 'Could not load your last card.', roomError);
+
+  const templateId = room?.template_id;
+  if (!templateId) return { saved, lastRoomCard: null };
+  const known = saved.find((card) => card.id === templateId);
+  if (known) return { saved, lastRoomCard: known };
+
+  const { data: card, error: cardError } = await supabase
+    .from('card_templates')
+    .select('*')
+    .eq('id', templateId)
+    .maybeSingle();
+  if (cardError) fail('loadHostChoices: card', 'Could not load your last card.', cardError);
+  return { saved, lastRoomCard: card };
 }
 
 /** Same name, ignoring case and outer spaces. Saved-card and tag names clash on this. */

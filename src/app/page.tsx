@@ -206,7 +206,7 @@ function HomePageContent() {
           </Link>
         </div>
 
-        {/* ── Your card templates ── */}
+        {/* ── Saved cards (built on /library) ── */}
         <TemplateList />
 
       </div>

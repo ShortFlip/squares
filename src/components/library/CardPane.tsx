@@ -17,12 +17,14 @@ import { slotsFor } from '@/lib/game/card-builder';
 import { CARD_PRESETS } from '@/lib/card-styles';
 import { sameName } from '@/lib/library/api';
 import { countsInSet, laneKeysFor } from '@/lib/library/card-draft';
+import { hostCardFor, type HostCard } from '@/lib/library/hosting';
 import { notify } from '@/lib/library/notify';
 import { cn } from '@/lib/utils';
 import { laneCounts, mixSlots, poolFor, useLibraryStore } from '@/stores/libraryStore';
 import { BTN, BTN_PRIMARY, GameGlyph, HOVER_CONTROL } from './GameGlyph';
 import { MixControl } from './MixControl';
 import { ConfirmDialog } from './TagDialogs';
+import { CreateRoomDialog } from '@/components/game/CreateRoomDialog';
 import type { SquareItem } from '@/types/card';
 import type { Tag } from '@/types/library';
 
@@ -45,6 +47,11 @@ export function CardPane() {
 
   const [replaceTarget, setReplaceTarget] = useState<{ id: string; name: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  // The card handed to Create Room, frozen at the click so the dialog's summary
+  // cannot shift under it. Kept after close so the dialog does not flip to the
+  // saved-card list while it fades out.
+  const [hostCard, setHostCard] = useState<HostCard | null>(null);
+  const [hostOpen, setHostOpen] = useState(false);
 
   const games = useMemo(() => tags.filter((t) => t.kind === 'game'), [tags]);
   const gameById = useMemo(() => new Map(games.map((g) => [g.id, g])), [games]);
@@ -86,6 +93,18 @@ export function CardPane() {
     } else {
       setReplaceTarget({ id: match.id, name: match.name });
     }
+  }
+
+  /**
+   * A saved card shown exactly as saved is hosted by its id; anything else
+   * (unsaved, edited, a pool draw, a topped-up legacy card) is inserted first
+   * as its own saved = false row. hostCardFor decides.
+   */
+  function onHost() {
+    if (short) return;
+    const savedCard = draft.templateId ? savedCards.find((card) => card.id === draft.templateId) : undefined;
+    setHostCard(hostCardFor(draft, tags, savedCard));
+    setHostOpen(true);
   }
 
   return (
@@ -239,7 +258,7 @@ export function CardPane() {
       </ul>
 
       <div className="flex items-center justify-between gap-3 border-t px-4 py-3">
-        <p className="text-[13px] text-muted-foreground" data-testid="save-hint">
+        <p className="min-w-0 text-[13px] text-muted-foreground" data-testid="save-hint">
           {short ? (
             <>
               <span className="font-mono text-foreground">{slots}</span> Needed, <span className="font-mono text-foreground">{filled}</span> So Far
@@ -248,14 +267,20 @@ export function CardPane() {
             'Name The Card To Save It'
           ) : null}
         </p>
-        {/* Phase 3: Host This Card goes here, beside Save Card. A saved, unchanged
-            card (templateId set, dirty false) hosts by its id; anything else is
-            inserted first as a card_templates row with saved = false. */}
-        <Button className={BTN_PRIMARY} disabled={short || nameBlank || saving} onClick={onSave}>
-          {saving && <Loader2 className="animate-spin" />}
-          Save Card
-        </Button>
+        {/* One primary action: hosting is what a finished card is for. Save
+            Card sits beside it as the secondary, at the same height. */}
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" className={BTN} disabled={short || nameBlank || saving} onClick={onSave}>
+            {saving && <Loader2 className="animate-spin" />}
+            Save Card
+          </Button>
+          <Button className={BTN_PRIMARY} disabled={short} onClick={onHost}>
+            Host This Card
+          </Button>
+        </div>
       </div>
+
+      {hostCard && <CreateRoomDialog open={hostOpen} onOpenChange={setHostOpen} card={hostCard} />}
 
       <ConfirmDialog
         open={replaceTarget !== null}

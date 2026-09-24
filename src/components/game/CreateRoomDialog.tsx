@@ -1,13 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Plus, Loader2, LayoutGrid } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { generateRoomCode } from '@/lib/game/room-code';
+import { insertUnsavedCard, LibraryError, loadCard, loadHostChoices } from '@/lib/library/api';
+import {
+  cardSplit,
+  chooseDefaultCard,
+  draftSplit,
+  hostCardName,
+  type CardSplit,
+  type HostCard,
+  type HostDraft,
+} from '@/lib/library/hosting';
 import { usePlayer } from '@/hooks/usePlayer';
+import { cn } from '@/lib/utils';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +29,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
+import { CardSplitWords } from '@/components/library/CardSplitWords';
 import type { CardTemplate } from '@/types/card';
 import type { GameMode } from '@/types/game';
 
@@ -35,50 +47,146 @@ const GAME_MODES: { value: GameMode; label: string; description: string }[] = [
   },
 ];
 
+// Every button here swaps the primitive's transition-all for a 150ms colour
+// transition (the owner's motion rule), and the primary one gets a hover it
+// otherwise only has when it renders as a link.
+const BTN = 'transition-colors duration-150';
+const BTN_PRIMARY = 'transition-colors duration-150 hover:bg-primary/85 active:bg-primary/75';
+
+/** A selectable tile (game mode, a card): one look for both pickers. */
+function tileClass(selected: boolean): string {
+  return cn(
+    'w-full rounded-lg border px-3 py-2.5 text-left outline-none transition-colors duration-150',
+    'focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50',
+    selected
+      ? 'border-primary bg-primary/10 text-foreground'
+      : 'border-border bg-card hover:border-primary/40 hover:bg-muted/40 active:bg-muted',
+  );
+}
+
+/** A card as one summary: name, size and the game split. */
+interface CardSummary {
+  name: string;
+  boardSize: number;
+  split: CardSplit;
+}
+
+function summaryOfRow(card: CardTemplate): CardSummary {
+  return { name: card.name, boardSize: card.board_size, split: cardSplit(card) };
+}
+
+function summaryOfDraft(draft: HostDraft): CardSummary {
+  return { name: hostCardName(draft.name), boardSize: draft.boardSize, split: draftSplit(draft) };
+}
+
+/** What the landing's picker lists: the last card when it is an unsaved copy, then my saved cards. */
+interface Choices {
+  saved: CardTemplate[];
+  lastUnsaved: CardTemplate | null;
+}
+
 interface CreateRoomDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Host this card (the library's Host This Card). The dialog then shows it as
+   * a summary instead of the card list. Omit it (the landing) to pick from the
+   * saved cards, with the last hosted card preselected.
+   */
+  card?: HostCard;
 }
 
-export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) {
+export function CreateRoomDialog({ open, onOpenChange, card }: CreateRoomDialogProps) {
   const router = useRouter();
   const { player } = usePlayer();
 
-  const [templates, setTemplates] = useState<CardTemplate[]>([]);
+  const [choices, setChoices] = useState<Choices | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // The saved card behind a { kind: 'saved' } prop, read for its summary.
+  const [hostedRow, setHostedRow] = useState<CardTemplate | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [gameMode, setGameMode] = useState<GameMode>('honor');
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Fetch the player's templates when the dialog opens
+  // A draft's card_templates row, once inserted. If the room insert then
+  // fails, Create Room again reuses it rather than leaving a second copy.
+  const insertedDraft = useRef<{ draft: HostDraft; id: string } | null>(null);
+
+  const savedId = card?.kind === 'saved' ? card.templateId : null;
+
+  // Read what the dialog shows each time it opens: saved cards can change
+  // between opens (Save Card, Remove), and so can the last hosted room.
   useEffect(() => {
     if (!open || !player) return;
+    if (card?.kind === 'draft') return; // everything needed is in the prop
 
-    setIsLoading(true);
-    const supabase = createClient();
-    supabase
-      .from('card_templates')
-      .select('*')
-      .eq('creator_id', player.id)
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (error) {
-          toast.error('Failed to load your templates.');
+    let cancelled = false;
+    const ownerId = player.id;
+    (async () => {
+      setIsLoading(true);
+      setLoadFailed(false);
+      try {
+        if (savedId) {
+          const row = await loadCard(ownerId, savedId);
+          if (cancelled) return;
+          setHostedRow(row);
+          if (!row) {
+            setLoadFailed(true);
+            toast.error('That card could not be found.');
+          }
         } else {
-          setTemplates(data ?? []);
-          // Auto-select the most recent one
-          if (data && data.length > 0) setSelectedId(data[0].id);
+          const { saved, lastRoomCard } = await loadHostChoices(ownerId);
+          if (cancelled) return;
+          const choice = chooseDefaultCard(saved, lastRoomCard);
+          setChoices({ saved, lastUnsaved: choice.lastUnsaved });
+          setSelectedId(choice.selectedId);
         }
-        setIsLoading(false);
-      });
-  }, [open, player]);
+      } catch (error) {
+        if (cancelled) return;
+        setLoadFailed(true);
+        toast.error(error instanceof LibraryError ? error.message : 'Could not load your cards.');
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, player, card?.kind, savedId]);
+
+  const fixedSummary = useMemo<CardSummary | null>(() => {
+    if (card?.kind === 'draft') return summaryOfDraft(card.draft);
+    if (card?.kind === 'saved' && hostedRow?.id === card.templateId) return summaryOfRow(hostedRow);
+    return null;
+  }, [card, hostedRow]);
+
+  const options = choices ? [...(choices.lastUnsaved ? [choices.lastUnsaved] : []), ...choices.saved] : [];
+  const isEmpty = !card && !isLoading && choices !== null && options.length === 0;
+  const canCreate = card ? fixedSummary !== null && !loadFailed : selectedId !== null;
+
+  /** The template_id the room gets: the saved card's, or a fresh saved = false row for a draft. */
+  async function templateIdFor(ownerId: string): Promise<string | null> {
+    if (card?.kind === 'saved') return card.templateId;
+    if (card?.kind === 'draft') {
+      if (insertedDraft.current?.draft === card.draft) return insertedDraft.current.id;
+      const id = await insertUnsavedCard(ownerId, card.draft);
+      insertedDraft.current = { draft: card.draft, id };
+      return id;
+    }
+    return selectedId;
+  }
 
   async function handleCreate() {
-    if (!player || !selectedId) return;
+    if (!player || !canCreate) return;
 
     setIsCreating(true);
     try {
+      const templateId = await templateIdFor(player.id);
+      if (!templateId) throw new Error('No card selected');
+
       const supabase = createClient();
 
       // Generate a unique room code — retry on the rare collision
@@ -96,7 +204,7 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
           host_id: player.id,
           join_code: joinCode,
           name: roomName.trim() || null,
-          template_id: selectedId,
+          template_id: templateId,
           status: 'waiting',
           settings: {
             winPatterns: ['row', 'column', 'diagonal'],
@@ -114,18 +222,31 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
       router.push(`/room/${room.join_code}`);
     } catch (err) {
       console.error('Failed to create room:', err);
-      toast.error('Could not create room. Please try again.');
+      toast.error(err instanceof LibraryError ? err.message : 'Could not create room. Please try again.');
       setIsCreating(false);
     }
   }
 
+  const buildLink = (
+    <Link
+      href="/library"
+      onClick={() => onOpenChange(false)}
+      className="inline-flex items-center gap-1 rounded-sm text-[13px] font-medium text-primary outline-none transition-colors duration-150 hover:text-primary/80 hover:underline active:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      <Plus className="size-4" strokeWidth={1.75} />
+      Build a Card
+    </Link>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-display text-xl">Create a Game</DialogTitle>
+          <DialogTitle className="font-display text-xl">Create a Room</DialogTitle>
           <DialogDescription>
-            Pick a card template to play with. You&apos;ll get a shareable room code.
+            {card
+              ? 'You’ll get a room code to share with your crew.'
+              : 'Pick a saved card. You’ll get a room code to share.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -133,10 +254,12 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
 
           {/* Optional room name */}
           <div className="space-y-1.5">
-            <Label htmlFor="room-name">Room name <span className="text-muted-foreground">(optional)</span></Label>
+            <Label htmlFor="room-name">
+              Room Name <span className="text-muted-foreground">(Optional)</span>
+            </Label>
             <Input
               id="room-name"
-              placeholder="e.g. Friday Night Bingo"
+              placeholder="Friday Night Bingo"
               value={roomName}
               onChange={(e) => setRoomName(e.target.value)}
               maxLength={60}
@@ -145,88 +268,139 @@ export function CreateRoomDialog({ open, onOpenChange }: CreateRoomDialogProps) 
 
           {/* Game mode picker */}
           <div className="space-y-1.5">
-            <Label>Game mode</Label>
+            <Label>Game Mode</Label>
             <div className="grid grid-cols-2 gap-1.5">
               {GAME_MODES.map((mode) => (
                 <button
                   key={mode.value}
                   type="button"
+                  aria-pressed={gameMode === mode.value}
                   onClick={() => setGameMode(mode.value)}
-                  className={`text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                    gameMode === mode.value
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-border bg-card hover:border-primary/40'
-                  }`}
+                  className={tileClass(gameMode === mode.value)}
                 >
                   <p className="text-sm font-medium">{mode.label}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{mode.description}</p>
+                  <p className="mt-0.5 text-[13px] text-muted-foreground">{mode.description}</p>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Template picker */}
+          {/* The card: a summary when one was handed in, else the saved-card picker */}
           <div className="space-y-1.5">
-            <Label>Card template</Label>
+            <div className="flex items-center justify-between gap-3">
+              <Label id="card-picker-label">Card</Label>
+              {!card && !isEmpty && buildLink}
+            </div>
 
-            {isLoading ? (
-              <div className="flex items-center gap-2 py-6 text-muted-foreground text-sm justify-center">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Loading your templates…
-              </div>
-            ) : templates.length === 0 ? (
-              <div className="text-center py-6 space-y-3 border border-dashed border-border rounded-lg">
-                <LayoutGrid className="w-8 h-8 mx-auto text-muted-foreground" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">No templates yet</p>
-                  <p className="text-xs text-muted-foreground">Create a card first, then come back here.</p>
-                </div>
-                <Link
-                  href="/create"
-                  onClick={() => onOpenChange(false)}
-                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            {card ? (
+              fixedSummary ? (
+                <div
+                  data-testid="card-summary"
+                  className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2.5"
                 >
-                  <Plus className="w-3.5 h-3.5 mr-1.5" />
-                  Create a card
+                  <div className="flex items-baseline justify-between gap-3">
+                    <p className="truncate text-sm font-medium">{fixedSummary.name}</p>
+                    <span className="shrink-0 font-mono text-[13px] text-muted-foreground">
+                      {fixedSummary.boardSize}×{fixedSummary.boardSize}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[13px] text-muted-foreground">
+                    <CardSplitWords split={fixedSummary.split} />
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                  {loadFailed ? (
+                    'Could not load this card.'
+                  ) : (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Loading the card…
+                    </>
+                  )}
+                </div>
+              )
+            ) : isLoading || choices === null ? (
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                {loadFailed ? (
+                  'Could not load your cards.'
+                ) : (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Loading your cards…
+                  </>
+                )}
+              </div>
+            ) : isEmpty ? (
+              <div className="space-y-3 rounded-lg border border-dashed border-border py-6 text-center">
+                <LayoutGrid className="mx-auto size-8 text-muted-foreground" strokeWidth={1.75} />
+                <p className="text-sm font-medium">No saved cards yet</p>
+                <Link
+                  href="/library"
+                  onClick={() => onOpenChange(false)}
+                  className={buttonVariants({ variant: 'outline', className: BTN })}
+                >
+                  <Plus strokeWidth={1.75} />
+                  Build a Card
                 </Link>
               </div>
             ) : (
-              <ul className="space-y-1.5 max-h-52 overflow-y-auto">
-                {templates.map((t) => (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(t.id)}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                        selectedId === t.id
-                          ? 'border-primary bg-primary/10 text-foreground'
-                          : 'border-border bg-card hover:border-primary/40'
-                      }`}
-                    >
-                      <p className="text-sm font-medium truncate">{t.name}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        <span className="font-mono">{t.board_size}×{t.board_size}</span> ·{' '}
-                        <span className="font-mono">{(t.items as unknown[]).length}</span> items ·{' '}
-                        {t.free_space ? 'Free space' : 'No free space'} · {t.shuffle_mode} shuffle
-                      </p>
-                    </button>
-                  </li>
-                ))}
+              <ul
+                role="radiogroup"
+                aria-labelledby="card-picker-label"
+                className="max-h-56 space-y-1.5 overflow-y-auto"
+              >
+                {options.map((option) => {
+                  const isLast = option.id === choices.lastUnsaved?.id;
+                  const summary = summaryOfRow(option);
+                  const selected = selectedId === option.id;
+                  return (
+                    <li key={option.id}>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        data-card-option={option.id}
+                        data-last-unsaved={isLast || undefined}
+                        onClick={() => setSelectedId(option.id)}
+                        className={tileClass(selected)}
+                      >
+                        <span className="flex items-baseline justify-between gap-3">
+                          <span className="truncate text-sm font-medium">
+                            {isLast ? 'Last Card (Unsaved)' : summary.name}
+                          </span>
+                          <span className="shrink-0 font-mono text-[13px] text-muted-foreground">
+                            {summary.boardSize}×{summary.boardSize}
+                          </span>
+                        </span>
+                        {isLast && (
+                          <span className="mt-0.5 block truncate text-[13px] text-foreground/85">
+                            {summary.name}
+                          </span>
+                        )}
+                        <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">
+                          <CardSplitWords split={summary.split} />
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button variant="outline" className={BTN} onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
             <Button
+              className={BTN_PRIMARY}
               onClick={handleCreate}
-              disabled={!selectedId || isCreating}
+              disabled={!canCreate || isCreating || isLoading}
             >
               {isCreating ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating…</>
+                <><Loader2 className="mr-2 size-4 animate-spin" /> Creating…</>
               ) : (
                 'Create Room'
               )}

@@ -5,7 +5,7 @@ import { seededRng } from '@/lib/game/seed-rng';
 import { CARD_PRESETS } from '@/lib/card-styles';
 import * as api from '@/lib/library/api';
 import {
-  buildLegend,
+  cardStyles,
   itemsForSave,
   laneKeysFor,
   matchCardItems,
@@ -55,7 +55,7 @@ export interface CardDraft {
    * items only (null = the whole library). Pinned items join the pool too.
    */
   poolIds: string[] | null;
-  /** Changed since it was loaded or saved. Phase 3 hosts an unchanged saved card by its id. */
+  /** Changed since it was loaded or saved. Host This Card hosts an unchanged saved card by its id (hostCardFor). */
   dirty: boolean;
 }
 
@@ -481,8 +481,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     async saveCard(targetId) {
       const { draft, tags, ownerId } = get();
       if (!ownerId) return false;
-      const preset = CARD_PRESETS.find((p) => p.id === draft.stylePreset) ?? CARD_PRESETS[0];
-      const styles: CardStyles = { ...preset.styles, preset: preset.id, legend: buildLegend(draft.set, tags) };
+      const styles = cardStyles(draft.stylePreset, draft.set, tags);
       try {
         const id = await api.saveCard({
           id: targetId,
