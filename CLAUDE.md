@@ -308,6 +308,10 @@ Read the file before changing the code it names. Each keeps the original text ve
 - Stay on Next.js + Supabase Realtime + Zustand + shadcn/ui — no custom socket server, no Redux; versions come from `package.json` — docs/decisions/0001-stack-choices.md
 - A win is whatever the claimant's tab detects; no Edge Function, RLS open, and that must change before outsiders join — docs/decisions/0002-client-side-win-verification.md
 
+### Plans
+
+- Item Library: tagged items, saved cards, the same N² set on every board, tint + icon + legend; no build or migration without his go — docs/plans/item-library.md
+
 ### Original spec
 
 The first-written plan, kept verbatim in `docs/spec/`. Where it disagrees with the code, the code wins.
