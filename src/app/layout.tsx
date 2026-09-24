@@ -1,29 +1,37 @@
 import type { Metadata } from 'next';
-import { Outfit, Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { PlayerProvider } from '@/components/game/PlayerProvider';
 import { Toaster } from 'sonner';
 import './globals.css';
 
+// The three faces are vendored in ./fonts instead of fetched by next/font/google.
+// Google Fonts now and then answers with extensionless `/l/font?kit=` URLs that
+// Turbopack cannot parse, and that fails the build at random
+// (vercel/next.js#99114). Self-hosting keeps every build off the network.
+// The files are the latin variable subsets from @fontsource-variable 5.3.0,
+// which republishes Google Fonts' own files. Each weight range stops where the old static
+// weight list stopped, so `font-black` still renders at 800 as it did before.
+
 // Display/headers — bold and characterful for "Arcade Lounge" feel
-const outfit = Outfit({
+const outfit = localFont({
+  src: './fonts/outfit-latin-wght-normal.woff2',
   variable: '--font-display',
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700', '800'],
+  weight: '400 800',
 });
 
 // Body/UI — clean geometric sans
-const plusJakartaSans = Plus_Jakarta_Sans({
+const plusJakartaSans = localFont({
+  src: './fonts/plus-jakarta-sans-latin-wght-normal.woff2',
   variable: '--font-sans',
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: '400 700',
 });
 
 // Monospace — room codes, stats, timestamps
-const jetbrainsMono = JetBrains_Mono({
+const jetbrainsMono = localFont({
+  src: './fonts/jetbrains-mono-latin-wght-normal.woff2',
   variable: '--font-mono',
-  subsets: ['latin'],
-  weight: ['400', '500', '700'],
+  weight: '400 700',
 });
 
 export const metadata: Metadata = {
