@@ -68,6 +68,20 @@ describe('generateCard', () => {
     expect(setOf(a)).not.toEqual(setOf(b));
   });
 
+  it('skips a blank pool slot in full mode instead of dealing it', () => {
+    // Guards the April-10 bug for callers that skip buildGameSetup's filter: a
+    // legacy 24-items-plus-blank pool must still deal 24 real items around FREE.
+    const legacy = [...pool(24), { text: '' }];
+    for (const playerId of ['player-a', 'player-b', 'player-c', 'player-d']) {
+      const card = generateCard(legacy, 'seed-1', playerId, 5, 'full', true);
+      expect(card).toHaveLength(25);
+      expect(card[12].isFreeSpace).toBe(true);
+      const real = card.filter((s) => !s.isFreeSpace);
+      expect(real.every((s) => s.text)).toBe(true);
+      expect(new Set(texts(real)).size).toBe(24);
+    }
+  });
+
   it('draws a full, duplicate-free card from a surplus pool in column mode', () => {
     const card = generateCard(pool(40), 'seed-1', 'player-a', 5, 'column', true);
     expect(card).toHaveLength(25);

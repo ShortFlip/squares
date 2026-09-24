@@ -1,6 +1,11 @@
 # Keeps the free-tier Supabase project from auto-pausing (~1 week of inactivity).
 # A real REST query counts as project activity — twice a week gives plenty of
 # margin so the DB is always awake for game night.
+#
+# This is one of two pingers. GitHub disables scheduled workflows after 60 days
+# without repo activity, so the Worker also runs the same query daily from a
+# Cloudflare Cron Trigger (wrangler.toml [triggers], src/lib/keepalive.ts).
+# Either one alone keeps the project awake; keep both.
 name: Supabase Keepalive
 
 on:

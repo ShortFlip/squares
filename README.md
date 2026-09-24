@@ -45,8 +45,11 @@ ordered by filename timestamp.
 ## Deployment
 
 Deploys are automatic: pushing to `master` runs the GitHub Actions workflow that
-builds with OpenNext and publishes to **Cloudflare Workers with Assets**. Do not
-use Cloudflare Pages or `wrangler pages deploy` — this project is a Worker.
+tests, type-checks, lints, builds with OpenNext and publishes to **Cloudflare
+Workers with Assets**. Pull requests run the same checks plus a
+`wrangler deploy --dry-run`, without deploying. Do not use Cloudflare Pages or
+`wrangler pages deploy` — this project is a Worker.
 
-A second scheduled workflow pings Supabase twice a week to keep the free-tier
-project from being paused for inactivity.
+Two independent pingers keep the free-tier Supabase project from being paused
+for inactivity: a scheduled GitHub workflow twice a week, and a daily Cloudflare
+Cron Trigger on the Worker itself (`custom-worker.ts`).
