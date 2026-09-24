@@ -2,126 +2,148 @@
 
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Loader2, Library } from 'lucide-react';
+import { BookmarkMinus, Library, Loader2, Pencil } from 'lucide-react';
 import Link from 'next/link';
-import { createClient } from '@/lib/supabase/client';
 import { usePlayer } from '@/hooks/usePlayer';
+import { LibraryError, loadSavedCards, unsaveCard } from '@/lib/library/api';
+import { cardSplit } from '@/lib/library/hosting';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { CardSplitWords } from '@/components/library/CardSplitWords';
+import { ConfirmDialog } from '@/components/library/TagDialogs';
 import type { CardTemplate } from '@/types/card';
 
+// The primitive's transition-all becomes a 150ms colour transition (the owner's motion rule).
+const BTN = 'transition-colors duration-150';
+
+/**
+ * The landing's Saved Cards: every card saved from the library (saved = true),
+ * newest first. Cards are built and edited on /library; this list opens them
+ * there and can take one off the list.
+ *
+ * Remove never deletes. Past nights read their card through rooms.template_id
+ * for its name, style and legend, so Remove only sets saved = false and
+ * History keeps drawing the night exactly as it was played.
+ *
+ * (The file and export keep their old name; the landing is the only caller.)
+ */
 export function TemplateList() {
   const { player } = usePlayer();
-  const [templates, setTemplates] = useState<CardTemplate[]>([]);
+  const [cards, setCards] = useState<CardTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Kept after the dialog closes so its title does not blank out mid fade.
+  const [removeTarget, setRemoveTarget] = useState<CardTemplate | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
 
   useEffect(() => {
     if (!player) return;
-    const supabase = createClient();
-    supabase
-      .from('card_templates')
-      .select('*')
-      .eq('creator_id', player.id)
-      .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        setTemplates(data ?? []);
-        setIsLoading(false);
+    let cancelled = false;
+    loadSavedCards(player.id)
+      .then((saved) => {
+        if (!cancelled) setCards(saved);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) toast.error(error instanceof LibraryError ? error.message : 'Could not load your saved cards.');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [player?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function handleDelete(id: string) {
-    setDeletingId(id);
-    const supabase = createClient();
-    const { error } = await supabase.from('card_templates').delete().eq('id', id);
-    if (error) {
-      toast.error('Could not delete template.');
-    } else {
-      setTemplates((prev) => prev.filter((t) => t.id !== id));
-      toast.success('Template deleted.');
+  async function remove(card: CardTemplate) {
+    try {
+      await unsaveCard(card.id, card.name);
+      setCards((prev) => prev.filter((c) => c.id !== card.id));
+      toast.success(`Removed “${card.name}” from Saved Cards`);
+    } catch (error) {
+      toast.error(error instanceof LibraryError ? error.message : `Could not remove “${card.name}”.`);
     }
-    setDeletingId(null);
   }
+
+  const openLibrary = (
+    <Link href="/library" className={buttonVariants({ variant: 'outline', className: BTN })}>
+      <Library strokeWidth={1.75} />
+      Open Library
+    </Link>
+  );
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
-        <Loader2 className="w-4 h-4 animate-spin" />
+      <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" />
         Loading your cards…
       </div>
     );
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-testid="saved-cards">
       <div className="flex items-center justify-between">
-        <h2 className="font-display text-lg font-bold">Your Cards</h2>
-        <div className="flex items-center gap-2">
-          {/* The library is where cards get built now; Phase 3 turns this list into Saved Cards. */}
-          <Link
-            href="/library"
-            className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          >
-            <Library className="w-3.5 h-3.5 mr-1.5" />
-            Open Library
-          </Link>
-          <Link
-            href="/create"
-            className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          >
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
-            New Card
-          </Link>
-        </div>
+        <h2 className="font-display text-lg font-bold">Saved Cards</h2>
+        {/* The empty state carries its own Open Library, so the header's would be a second copy. */}
+        {cards.length > 0 && openLibrary}
       </div>
 
-      {templates.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border p-8 text-center space-y-3">
-          <p className="text-sm text-muted-foreground">No cards yet. Make one to get started.</p>
-          <Link href="/create" className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-            <Plus className="w-3.5 h-3.5 mr-1.5" />
-            Create your first card
-          </Link>
+      {cards.length === 0 ? (
+        <div className="space-y-3 rounded-xl border border-dashed border-border p-8 text-center">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">No saved cards yet</p>
+            <p className="text-[13px] text-muted-foreground">Build one in the Library and hit Save Card.</p>
+          </div>
+          {openLibrary}
         </div>
       ) : (
-        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {templates.map((t) => (
+        <ul className="grid grid-cols-2 gap-3">
+          {cards.map((card) => (
             <li
-              key={t.id}
-              className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3"
+              key={card.id}
+              data-saved-card={card.id}
+              className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4"
             >
-              <div className="flex-1 space-y-1">
-                <p className="font-semibold text-sm truncate">{t.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  <span className="font-mono">{t.board_size}×{t.board_size}</span> ·{' '}
-                  <span className="font-mono">{(t.items as unknown[]).length}</span> items ·{' '}
-                  {t.free_space ? 'Free space' : 'No free space'}
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="truncate text-sm font-semibold">{card.name}</p>
+                  <span className="shrink-0 font-mono text-[13px] text-muted-foreground">
+                    {card.board_size}×{card.board_size}
+                  </span>
+                </div>
+                <p className="text-[13px] text-muted-foreground" data-testid="saved-card-split">
+                  <CardSplitWords split={cardSplit(card)} />
                 </p>
               </div>
               <div className="flex gap-2">
                 <Link
-                  href={`/create?id=${t.id}`}
-                  className={buttonVariants({ variant: 'outline', size: 'sm', className: 'flex-1 gap-1.5' })}
+                  href={`/library?card=${card.id}`}
+                  className={buttonVariants({ variant: 'outline', className: `${BTN} flex-1` })}
                 >
-                  <Pencil className="w-3 h-3" />
+                  <Pencil strokeWidth={1.75} />
                   Edit
                 </Link>
                 <Button
                   variant="outline"
-                  size="sm"
-                  className="text-destructive hover:text-destructive hover:border-destructive"
-                  onClick={() => handleDelete(t.id)}
-                  disabled={deletingId === t.id}
+                  className={`${BTN} text-destructive hover:border-destructive hover:text-destructive active:bg-destructive/15`}
+                  onClick={() => { setRemoveTarget(card); setRemoveOpen(true); }}
                 >
-                  {deletingId === t.id
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <Trash2 className="w-3.5 h-3.5" />
-                  }
+                  <BookmarkMinus strokeWidth={1.75} />
+                  Remove
                 </Button>
               </div>
             </li>
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={removeOpen}
+        onOpenChange={setRemoveOpen}
+        title={`Remove “${removeTarget?.name ?? ''}” from Saved Cards?`}
+        body="Past nights keep it."
+        confirmLabel="Remove"
+        destructive
+        onConfirm={async () => { if (removeTarget) await remove(removeTarget); }}
+      />
     </div>
   );
 }
