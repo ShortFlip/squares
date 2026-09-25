@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link as LinkIcon, Volume2, VolumeX } from 'lucide-react';
 import { BingoBoard } from '@/components/board/BingoBoard';
+import { BoardLegend } from '@/components/board/BoardLegend';
 import { WinBanner } from './WinBanner';
 import { HostControls } from './HostControls';
 import { CallerPanel } from './CallerPanel';
@@ -12,7 +13,9 @@ import { GameSkeleton } from './GameSkeleton';
 import { useGameStore, type OtherPlayer } from '@/stores/gameStore';
 import { useGameState } from '@/hooks/useGameState';
 import { usePlayer } from '@/hooks/usePlayer';
+import { useLegendNamesFit } from '@/hooks/useLegendNamesFit';
 import { useDevState } from '@/lib/dev-state';
+import { cardLegend } from '@/lib/library/legend';
 import { bestLine, bestLineLabel } from '@/lib/game/win-detection';
 import { copyLink } from '@/lib/utils/copy-link';
 import { playerColor, getInitials } from '@/lib/utils/player-color';
@@ -65,7 +68,7 @@ export function GameView({
     winners: storeWinners, hasClaimed, roundNumber, cardStyles, gameMode, others,
   } = useGameStore();
 
-  const { marksSet, canMark, currentWin, calledGridIndices } = useGameState();
+  const { canMark, currentWin, calledGridIndices } = useGameState();
   const dev = useDevState();
 
   const isHost = currentPlayerId === room.host_id;
@@ -80,6 +83,7 @@ export function GameView({
   const free = dev?.freeSpace ?? freeSpace;
   const card = dev?.card ?? myCard;
   const marks = dev?.marks ?? myMarks;
+  const styles = dev?.styles ?? cardStyles;
   const totalSquares = size * size;
   const isReconnecting = dev?.forceReconnecting || connection !== 'live';
 
@@ -131,6 +135,11 @@ export function GameView({
     // each parent render) plus hasClaimed would let a failed claim — which
     // resets hasClaimed to false — immediately re-fire in a retry loop.
   }, [currentWin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The marks the board draws. Honor play also feeds these in as "called", so
+  // they must be the displayed marks — under a dev override the store's own
+  // marks would paint the called wash on squares the board shows unmarked.
+  const markedSet = useMemo(() => new Set(marks), [marks]);
 
   // My best line drives both the header note and the hot lane on the board.
   const myLine = useMemo(
@@ -214,6 +223,14 @@ export function GameView({
   // space the window leaves it (see hero-fit.ts), so a short or half-width
   // window still shows every row.
   const gridW = heroGridSize(hasWinners);
+
+  // The legend names only the games on my board. A legacy card has no legend,
+  // so this is empty and the name row stays exactly as it always was.
+  const legendGames = useMemo(() => cardLegend(styles.legend, card), [styles.legend, card]);
+  // A callback ref, not useRef: the row does not exist while the skeleton
+  // shows, and the fit check has to start when it mounts.
+  const [nameRow, setNameRow] = useState<HTMLDivElement | null>(null);
+  const showLegendNames = useLegendNamesFit(nameRow, legendGames.length > 0);
 
   function handleMark(gridIndex: number) {
     if (!canMark(gridIndex)) return; // blocks free space; in traditional mode, uncalled squares too
@@ -355,6 +372,7 @@ export function GameView({
           style={{ padding: `${PANEL_PAD_Y}px ${PANEL_PAD_X}px`, gap: PANEL_GAP }}
         >
           <div
+            ref={setNameRow}
             className="flex items-center justify-between gap-3 transition-[width] duration-300 ease-out"
             style={{ width: gridW, height: NAME_ROW_H }}
           >
@@ -365,9 +383,13 @@ export function GameView({
               >
                 {getInitials(displayName).slice(0, 1)}
               </span>
-              <span className="font-display text-[20px] font-bold truncate">{displayName}</span>
+              <span data-hero-name className="font-display text-[20px] font-bold truncate">{displayName}</span>
               {/* My own placing replaces the "this is you" pill — once I have
-                  won, which board is mine is no longer the news. */}
+                  won, which board is mine is no longer the news. On a card
+                  with games the legend takes the pill's width instead: at the
+                  608px board the row cannot hold name, pill, legend, note and
+                  score at once (196 + 226 + 174 > 608 with a short name), and
+                  the biggest board on screen is plainly mine. */}
               {myPlacing ? (
                 <span
                   className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] shrink-0 text-background"
@@ -375,7 +397,7 @@ export function GameView({
                 >
                   {myPlacing === 2 ? '2ND' : '1ST'}
                 </span>
-              ) : (
+              ) : legendGames.length > 0 ? null : (
                 <span className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] bg-primary/15 text-primary border border-primary/30 shrink-0">
                   YOUR BOARD
                 </span>
@@ -383,6 +405,10 @@ export function GameView({
             </div>
 
             <div className="flex items-center gap-[14px] shrink-0">
+              {/* The key to the square marks, in the row that already sits
+                  above the board: a row of its own would take its height
+                  from the board. Icons only when the names do not fit. */}
+              <BoardLegend games={legendGames} showNames={showLegendNames} className="mr-1" />
               <span
                 className={cn(
                   'text-[12px] font-semibold',
@@ -411,11 +437,15 @@ export function GameView({
               boardSize={size}
               freeSpace={false}
               variant="game"
-              styles={cardStyles}
-              markedIndices={new Set(marks)}
+              styles={styles}
+              markedIndices={markedSet}
               // Traditional: called-but-unmarked squares glow so players can
-              // spot them. Honor: no caller, so "called" mirrors marked.
-              calledIndices={isTraditional ? calledGridIndices : marksSet}
+              // spot them. Honor: no caller, so "called" mirrors marked. The
+              // harness can add called squares to check the called wash beside a marker.
+              calledIndices={
+                dev?.called ? new Set([...dev.called, ...marks])
+                  : isTraditional ? calledGridIndices : markedSet
+              }
               laneIndices={laneIndices}
               onMarkSquare={handleMark}
               gapClass="gap-2"

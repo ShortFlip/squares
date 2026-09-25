@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { BingoSquare } from './BingoSquare';
+import { squareGame } from '@/lib/library/legend';
 import type { SquareItem, CardStyles } from '@/types/card';
 
 // Pre-declare all grid sizes so Tailwind includes them in the build
@@ -105,6 +106,10 @@ export function BingoBoard({
               isMarked={markedIndices?.has(gridIndex) ?? false}
               isCalled={calledIndices?.has(gridIndex) ?? false}
               onMark={() => onMarkSquare?.(gridIndex)}
+              // The card's legend (styles.legend) names each game; a card
+              // without one — every legacy card — resolves to null and draws
+              // exactly as before.
+              game={squareGame(styles?.legend, item.gameTagId, isFreeSpace)}
               className={cn(squareClassName, laneIndices?.has(gridIndex) && 'lane')}
             />
           </div>

@@ -8,7 +8,8 @@ export type TagKind = 'game' | 'tag';
 export type GameColorKey = 'sky' | 'cyan' | 'rose' | 'orange' | 'pink';
 
 /** Keys into GAME_ICONS. Lookalike icons only; never real game logos (the repo is public). */
-export type GameIconKey = 'flame' | 'crosshair' | 'car' | 'target' | 'swords' | 'gamepad';
+export type GameIconKey =
+  | 'flame' | 'crosshair' | 'car' | 'target' | 'swords' | 'gamepad' | 'skull' | 'bomb';
 
 /** A row of `tags`. color and icon are set on game tags only. */
 export interface Tag {

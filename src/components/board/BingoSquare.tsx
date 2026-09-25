@@ -2,6 +2,7 @@
 
 import { useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import type { BoardGame } from '@/lib/library/legend';
 import type { SquareItem, CardStyles } from '@/types/card';
 
 interface BingoSquareProps {
@@ -19,9 +20,44 @@ interface BingoSquareProps {
   isMarked?: boolean;
   isCalled?: boolean;
   onMark?: () => void;
+  /** The square's game from the card's legend; null or absent draws it plain. */
+  game?: BoardGame | null;
   /** Per-board overrides (radius, text size, hot-lane wash). Merged last. */
   className?: string;
 }
+
+/**
+ * A square's game: its icon in the game's colour, alone in the top-left
+ * corner — no wash, bar or tab (DESIGN.md Part 2 Rulings, 2026-09-24). The
+ * square's face is left exactly as it is, so a marked square's amber stays
+ * the only fill on the board, and the marker rides on top of it unchanged.
+ *
+ * 16px, stepping down only where it would reach the centred text (three
+ * lines, 37.5px at the 10px floor, measured on the page):
+ * - under 88px wide, 14px — 6×6 under the win banner at 1280×800 (80px), the
+ *   History snapshot at 6×6: there three lines start ~21px down, and a 16px
+ *   icon at 4px in would reach 21;
+ * - under 78px, 12px, and the text is centred in the space below the icon
+ *   (SMALL_SQUARE_TEXT, on the square) — 6×6 under the banner in a 670px-tall
+ *   window leaves 60px squares, where even a 12px icon meets the top line.
+ * The cell around each square is an @container, so each step follows the
+ * square's own width wherever the board is drawn. pointer-events-none so a
+ * click on the icon still marks the square.
+ */
+function GameMarker({ game }: { game: BoardGame }) {
+  const Icon = game.icon;
+  return (
+    <Icon
+      aria-hidden
+      strokeWidth={1.75}
+      className="pointer-events-none absolute left-1 top-1 size-4 @max-[88px]:size-3.5 @max-[78px]:size-3"
+      style={{ color: game.color }}
+    />
+  );
+}
+
+/** Below 78px the text moves under the 12px marker (4px in + 12px + 2px gap). */
+const SMALL_SQUARE_TEXT = '@max-[78px]:pt-[18px]';
 
 export function BingoSquare({
   item,
@@ -35,6 +71,7 @@ export function BingoSquare({
   isMarked = false,
   isCalled = false,
   onMark,
+  game = null,
   className,
 }: BingoSquareProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -182,9 +219,11 @@ export function BingoSquare({
           ],
           !hasCustomColors && isCalled && !isMarked && 'bg-primary/10 text-foreground',
           !hasCustomColors && !isMarked && !isCalled && 'hover:bg-primary/5',
+          game && SMALL_SQUARE_TEXT,
           className,
         )}
       >
+        {game && <GameMarker game={game} />}
         <span className="break-words line-clamp-3">{item.text}</span>
       </button>
     );
