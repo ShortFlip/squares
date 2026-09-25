@@ -353,5 +353,3 @@ Known gaps, deliberate or otherwise. None of these block a game night.
 - **The light theme's glass inversion has never been reviewed on a real game
   screen.** Latte was checked on the landing page only; the header, banner and
   rail all assume white-on-dark translucency.
-- **Square text is at line height 1.5, not 1.25.** A text-size class in
-  `squareClassName` makes `cn` drop the base `leading-tight`.

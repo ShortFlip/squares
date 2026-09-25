@@ -122,6 +122,14 @@ interface LibraryState {
   filter: LibraryFilter;
   search: string;
   selectedIds: string[];
+  /**
+   * The game picked in the Add an Item row's select for the current filter
+   * (null = none picked, so the row follows addItemDefaults). Every filter
+   * change clears it, so a new view starts on its own default again.
+   */
+  addPick: { gameTagId: string | null } | null;
+  /** The game last picked in the Add an Item row: its default under All. Memory only, for this session. */
+  addLastGame: string | null;
 
   draft: CardDraft;
   /** Lanes that asked for more squares than they have items, from the last build. */
@@ -135,7 +143,15 @@ interface LibraryState {
   toggleSelected: (id: string) => void;
   setSelected: (ids: string[]) => void;
   clearSelection: () => void;
-  importList: (texts: string[], gameTagId: string | null, tagIds: string[]) => Promise<{ added: number; skipped: number } | null>;
+  /** Pick the Add an Item row's game (null = No Game); remembered as the row's default under All. */
+  pickAddGame: (gameTagId: string | null) => void;
+  /** Add texts through importItems. `failMessage` replaces the list wording in the error toast. */
+  importList: (
+    texts: string[],
+    gameTagId: string | null,
+    tagIds: string[],
+    failMessage?: string,
+  ) => Promise<{ added: number; skipped: number } | null>;
   renameItem: (id: string, text: string) => Promise<boolean>;
   setGameFor: (ids: string[], gameTagId: string | null) => Promise<boolean>;
   addTagTo: (ids: string[], tagId: string) => Promise<boolean>;
@@ -231,6 +247,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     filter: 'all',
     search: '',
     selectedIds: [],
+    addPick: null,
+    addLastGame: null,
     draft: blankDraft(null),
     capped: [],
 
@@ -259,8 +277,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     },
 
     // A new filter hides rows, so a selection made under the old one is cleared
-    // rather than left to be bulk-edited unseen.
-    setFilter: (filter) => set({ filter, selectedIds: [] }),
+    // rather than left to be bulk-edited unseen. The Add an Item row's pick is
+    // cleared too, so the row starts on the new view's default.
+    setFilter: (filter) => set({ filter, selectedIds: [], addPick: null }),
+    pickAddGame: (gameTagId) => set({ addPick: { gameTagId }, addLastGame: gameTagId }),
     setSearch: (search) => set({ search }),
     toggleSelected: (id) =>
       set((s) => ({
@@ -269,15 +289,15 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     setSelected: (ids) => set({ selectedIds: ids }),
     clearSelection: () => set({ selectedIds: [] }),
 
-    async importList(texts, gameTagId, tagIds) {
+    async importList(texts, gameTagId, tagIds, failMessage) {
       const { ownerId } = get();
       if (!ownerId) return null;
       try {
-        const result = await api.importItems(ownerId, texts, gameTagId, tagIds);
+        const result = await api.importItems(ownerId, texts, gameTagId, tagIds, failMessage);
         afterLibraryChange([...result.items, ...get().items]);
         return { added: result.added, skipped: result.skipped };
       } catch (error) {
-        toastError(error, 'Could not import that list.');
+        toastError(error, failMessage ?? 'Could not import that list.');
         // An import can fail halfway (items in, tags not), so re-read rather
         // than guess what landed. Quietly: the toast above already spoke.
         try {

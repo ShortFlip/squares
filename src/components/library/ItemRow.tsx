@@ -25,6 +25,11 @@ interface ItemRowProps {
   onRename: (id: string, text: string) => Promise<boolean>;
   onSetGame: (id: string, gameTagId: string | null) => void;
   onPin: (id: string) => void;
+  /**
+   * Non-zero while this row is lit after an Add an Item save (or as the
+   * duplicate it found). A new number restarts the fade.
+   */
+  flash?: number;
 }
 
 /**
@@ -44,6 +49,7 @@ export const ItemRow = memo(function ItemRow({
   onRename,
   onSetGame,
   onPin,
+  flash = 0,
 }: ItemRowProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.text);
@@ -84,11 +90,14 @@ export const ItemRow = memo(function ItemRow({
   return (
     <li
       data-item-id={item.id}
+      // isolate: the flash layer sits behind the row's content but above the pane.
       className={cn(
-        'group flex h-11 items-center gap-3 border-b border-border/60 px-4 transition-colors duration-150',
+        'group relative isolate flex h-11 items-center gap-3 border-b border-border/60 px-4 transition-colors duration-150',
         selected ? 'bg-primary/10' : 'hover:bg-muted/40',
       )}
     >
+      {/* Keyed by the flash number, so lighting the same row again remounts it and replays the fade. */}
+      {flash > 0 && <span key={flash} aria-hidden data-testid="item-flash" className="item-flash pointer-events-none absolute inset-0 -z-10" />}
       <Checkbox
         checked={selected}
         onCheckedChange={() => onToggleSelected(item.id)}

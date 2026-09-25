@@ -123,15 +123,19 @@ export async function loadLibrary(ownerId: string): Promise<{ items: LibraryItem
  * case-insensitive) and repeats within the paste, then tags what was added.
  * The DB's unique index is the backstop: a text that slipped in meanwhile
  * comes back as 23505 and is counted as skipped, not as a failure.
+ *
+ * The Add an Item row adds one item through here too (one insert path, one
+ * dedupe rule); it passes its own `message` so a failure does not talk about
+ * a list he never pasted.
  */
 export async function importItems(
   ownerId: string,
   texts: string[],
   gameTagId: string | null,
   tagIds: string[],
+  message = 'Could not import that list. Nothing was added.',
 ): Promise<{ added: number; skipped: number; items: LibraryItem[] }> {
   const supabase = createClient();
-  const message = 'Could not import that list. Nothing was added.';
 
   const existing: string[] = [];
   for (let from = 0; ; from += PAGE) {
