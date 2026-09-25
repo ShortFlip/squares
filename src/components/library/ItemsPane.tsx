@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Plus, Search, Tag as TagIcon, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -13,10 +13,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { slotsFor } from '@/lib/game/card-builder';
+import { matchesFilter, revealFor } from '@/lib/library/add-item';
 import { textKey } from '@/lib/library/card-draft';
 import { notify } from '@/lib/library/notify';
 import { cn } from '@/lib/utils';
-import { useLibraryStore, type LibraryFilter } from '@/stores/libraryStore';
+import { useLibraryStore } from '@/stores/libraryStore';
+import { AddItemRow } from './AddItemRow';
 import { BTN, GameGlyph, HOVER_CONTROL, chipClass } from './GameGlyph';
 import { PickMenu } from './GameMenu';
 import { ItemRow } from './ItemRow';
@@ -26,14 +28,10 @@ import type { LibraryItem, Tag } from '@/types/library';
 /** Extra-tag chips shown in the filter row; the rest go behind More Tags. */
 const VISIBLE_TAG_CHIPS = 6;
 
-function matchesFilter(item: LibraryItem, filter: LibraryFilter, games: Set<string>): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'none') return item.gameTagId === null;
-  if (games.has(filter)) return item.gameTagId === filter;
-  return item.tagIds.includes(filter);
-}
+/** How long a row stays lit after Add an Item lands on it; matches .item-flash in globals.css. */
+const FLASH_MS = 1200;
 
-/** The left pane: filter chips, search, the bulk bar, and every item. */
+/** The left pane: filter chips, search, the bulk bar, Add an Item, and every item. */
 export function ItemsPane() {
   const items = useLibraryStore((s) => s.items);
   const tags = useLibraryStore((s) => s.tags);
@@ -56,6 +54,9 @@ export function ItemsPane() {
   const [newGameOpen, setNewGameOpen] = useState(false);
   const [newTagOpen, setNewTagOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // The row Add an Item just landed on; n restarts the fade when the same row lights twice.
+  const [flash, setFlash] = useState<{ id: string; n: number } | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   const games = useMemo(() => tags.filter((t) => t.kind === 'game'), [tags]);
   const extraTags = useMemo(() => tags.filter((t) => t.kind === 'tag'), [tags]);
@@ -89,6 +90,28 @@ export function ItemsPane() {
   // Stable callbacks so memoised rows only re-render when their own item changes.
   const onSetGame = useCallback((id: string, gameTagId: string | null) => { void setGameFor([id], gameTagId); }, [setGameFor]);
   const onPin = useCallback((id: string) => togglePin(id), [togglePin]);
+
+  // Make an item Add an Item just saved (or found as a duplicate) visible:
+  // drop a search that hides it, go back to All if the filter hides it (he
+  // picked another game than the view's), then light its row.
+  const reveal = useCallback(
+    (item: LibraryItem) => {
+      const state = useLibraryStore.getState();
+      const plan = revealFor(item, state.filter, state.search, gameIds);
+      if (plan.clearSearch) setSearch('');
+      if (plan.showAll) setFilter('all');
+      setFlash((current) => ({ id: item.id, n: (current?.n ?? 0) + 1 }));
+    },
+    [gameIds, setSearch, setFilter],
+  );
+
+  // After the list has rendered the lit row: bring it into view, and let it go after FLASH_MS.
+  useEffect(() => {
+    if (!flash) return;
+    listRef.current?.querySelector(`[data-item-id="${flash.id}"]`)?.scrollIntoView({ block: 'nearest' });
+    const timer = window.setTimeout(() => setFlash(null), FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [flash]);
 
   const shownTags = extraTags.slice(0, VISIBLE_TAG_CHIPS);
   const moreTags = extraTags.slice(VISIBLE_TAG_CHIPS);
@@ -270,11 +293,13 @@ export function ItemsPane() {
         </div>
       </div>
 
+      <AddItemRow games={games} onReveal={reveal} />
+
       {items.length === 0 ? (
         <div className="grid flex-1 place-items-center p-8">
           <div className="space-y-1 text-center" data-testid="empty-library">
             <p className="font-display text-lg font-bold">Your library is empty</p>
-            <p className="text-sm text-muted-foreground">Paste a list with Import List to get started.</p>
+            <p className="text-sm text-muted-foreground">Add one above, or paste a list with Import List.</p>
           </div>
         </div>
       ) : visible.length === 0 ? (
@@ -283,7 +308,7 @@ export function ItemsPane() {
         </div>
       ) : (
         // Keyed by filter so a new filter starts at the top, not mid-scroll.
-        <ul key={filter} className="min-h-0 flex-1 overflow-y-auto" aria-label="Library Items">
+        <ul key={filter} ref={listRef} className="min-h-0 flex-1 overflow-y-auto" aria-label="Library Items">
           {visible.map((item) => (
             <ItemRow
               key={item.id}
@@ -298,6 +323,7 @@ export function ItemsPane() {
               onRename={renameItem}
               onSetGame={onSetGame}
               onPin={onPin}
+              flash={flash?.id === item.id ? flash.n : 0}
             />
           ))}
         </ul>

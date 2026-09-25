@@ -549,12 +549,29 @@
   50%      { opacity: 1; }
 }
 
+/* ── Library row flash ─────────────────────────────────────────────────────
+   The row an Add an Item save lands on (or the duplicate it points at) lights
+   with a primary tint, holds for a beat so the eye finds it, then fades out
+   over the rest of 1.2s. Colour only, nothing moves. ItemsPane removes the
+   layer after the same 1.2s, so under reduced motion the tint simply shows
+   and goes, with no fade. */
+.item-flash {
+  background: color-mix(in oklab, var(--primary) 24%, transparent);
+  animation: item-flash 1.2s ease-out both;
+}
+
+@keyframes item-flash {
+  0%, 30% { opacity: 1; }
+  100%    { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .sq-marked,
   .call-flip,
   .win-banner-enter,
   .sk-square,
-  .sk-bar {
+  .sk-bar,
+  .item-flash {
     animation: none;
   }
 }
