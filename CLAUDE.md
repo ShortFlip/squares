@@ -124,7 +124,7 @@ squares/
 │   │   ├── layout.tsx                # Root layout (fonts, theme, player provider)
 │   │   ├── globals.css               # Tokens, theme blocks, glass + animation utilities
 │   │   ├── page.tsx                  # Landing — create, join, Rejoin chip
-│   │   ├── create/page.tsx           # Card template creator/editor
+│   │   ├── library/page.tsx          # Library — items pane + card builder
 │   │   ├── room/[code]/page.tsx      # Game room — lobby → playing → game over
 │   │   ├── history/page.tsx          # Nights (one per room) + per-round drill-down
 │   │   └── leaderboard/page.tsx      # Co-player rankings
@@ -133,10 +133,7 @@ squares/
 │   │   ├── board/
 │   │   │   ├── BingoBoard.tsx        # The NxN grid — marking, hot lane, called wash
 │   │   │   ├── BingoSquare.tsx       # One square — text, image, marked/called state
-│   │   │   ├── MiniBoard.tsx         # Someone else's board at ~90–108px, glanceable
-│   │   │   ├── BoardEditor.tsx       # Template editor grid + item pool
-│   │   │   ├── BoardPreview.tsx      # Read-only shuffled preview
-│   │   │   └── CardStylePicker.tsx   # Per-template style presets
+│   │   │   └── MiniBoard.tsx         # Someone else's board at ~90–108px, glanceable
 │   │   ├── game/
 │   │   │   ├── RoomClient.tsx        # Room state machine + all Supabase writes
 │   │   │   ├── GameLobby.tsx         # Pre-game waiting room
@@ -155,6 +152,7 @@ squares/
 │   │   │   ├── ProfileModal.tsx      # Name, avatar, theme, claim code (no /profile page)
 │   │   │   └── ThemePicker.tsx       # The six app themes
 │   │   ├── layout/RoomCodeDisplay.tsx
+│   │   ├── library/                  # Library panes, import, mix control
 │   │   ├── stats/PlayerStats.tsx
 │   │   └── ui/                       # shadcn/ui primitives + PlayerAvatar
 │   │
@@ -170,6 +168,7 @@ squares/
 │   │   │   ├── game-players.ts       # loadGamePlayers — everyone's cards + marks
 │   │   │   ├── import.ts             # parseImport — newlines then commas, dedupe
 │   │   │   └── __tests__/            # Vitest: shuffle, game-setup, win-detection, call-list, import
+│   │   ├── library/                  # Library API, card draft, hosting, legend
 │   │   ├── utils/
 │   │   │   ├── browser-id.ts         # localStorage UUID identity
 │   │   │   ├── last-room.ts          # Remembers the last room for the Rejoin chip
@@ -184,7 +183,8 @@ squares/
 │   │   ├── keepalive.ts              # Supabase ping for the Worker Cron Trigger (pure, no Next)
 │   │   └── dev-state.ts              # `?state=` harness, DEV-only, stripped from prod
 │   │
-│   ├── stores/                       # Zustand: gameStore, editorStore, playerStore
+│   ├── stores/                       # Zustand: gameStore, playerStore
+│   │   └── libraryStore.ts           # Library items, tags, filter and the card draft
 │   ├── hooks/                        # useRealtimeRoom, useGameState, usePlayer
 │   └── types/                        # game.ts, card.ts, player.ts
 │
@@ -353,7 +353,5 @@ Known gaps, deliberate or otherwise. None of these block a game night.
 - **The light theme's glass inversion has never been reviewed on a real game
   screen.** Latte was checked on the landing page only; the header, banner and
   rail all assume white-on-dark translucency.
-- **`/create` and `BoardEditor` are orphaned.** The library replaced them;
-  nothing links to them, but the route still works. Retire them.
 - **Square text is at line height 1.5, not 1.25.** A text-size class in
   `squareClassName` makes `cn` drop the base `leading-tight`.
