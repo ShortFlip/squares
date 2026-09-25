@@ -29,8 +29,8 @@ export function CalledItems() {
 
   if (calledItems.length === 0) {
     return (
-      <div className="text-center py-4 text-xs text-muted-foreground">
-        No items called yet
+      <div className="text-center py-4 text-[13px] text-muted-foreground">
+        No Items Called Yet
       </div>
     );
   }
@@ -41,7 +41,7 @@ export function CalledItems() {
         <span
           key={`${idx}-${i}`}
           className={cn(
-            'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-150',
+            'inline-flex items-center px-2.5 py-1 rounded-full text-[13px] font-medium transition-[background-color,color,border-color,box-shadow,opacity] duration-150',
             i === 0
               // Most recent: amber ring so the newest call reads instantly
               ? 'bg-primary text-primary-foreground ring-2 ring-accent shadow-[0_0_12px_color-mix(in_oklab,var(--accent)_40%,transparent)]'

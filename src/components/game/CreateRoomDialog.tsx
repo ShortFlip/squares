@@ -47,9 +47,9 @@ const GAME_MODES: { value: GameMode; label: string; description: string }[] = [
   },
 ];
 
-// Every button here swaps the primitive's transition-all for a 150ms colour
-// transition (the owner's motion rule), and the primary one gets a hover it
-// otherwise only has when it renders as a link.
+// A 150ms colour transition (the owner's motion rule). The Button primitive
+// now carries it too, so BTN only restates it; the primary one also gets a
+// hover it otherwise only has when it renders as a link.
 const BTN = 'transition-colors duration-150';
 const BTN_PRIMARY = 'transition-colors duration-150 hover:bg-primary/85 active:bg-primary/75';
 
@@ -327,7 +327,7 @@ export function CreateRoomDialog({ open, onOpenChange, card }: CreateRoomDialogP
                 ) : (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    Loading your cards…
+                    Loading Your Cards…
                   </>
                 )}
               </div>

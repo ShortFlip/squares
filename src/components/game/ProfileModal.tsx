@@ -152,7 +152,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
 
       // Reflect changes in the store immediately — no page reload needed
       updatePlayer({ display_name: displayName.trim(), avatar_url: avatarUrl });
-      toast.success('Profile saved!');
+      toast.success('Profile Saved');
       onOpenChange(false);
     } catch (err) {
       console.error('Profile save failed:', err);
@@ -168,7 +168,11 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpen}>
-      <DialogContent className="sm:max-w-md">
+      {/* Taller than a 1280×800 window once the stats and badges render, and
+          the dialog is centred with no scroll of its own, so its top and its
+          badges were cut off. Capped at the viewport, it scrolls instead, with
+          the rail's thin scrollbar rather than the bright default. */}
+      <DialogContent className="sm:max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.18)_transparent]">
         <DialogHeader>
           <DialogTitle className="font-display text-xl">Your Profile</DialogTitle>
           <DialogDescription>
@@ -192,7 +196,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Change photo"
+                aria-label="Change Photo"
               >
                 <Camera className="w-6 h-6 text-white" />
               </button>
@@ -200,9 +204,9 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              className="text-[13px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
             >
-              {currentAvatarUrl ? 'Change photo' : 'Add a photo'}
+              {currentAvatarUrl ? 'Change Photo' : 'Add a Photo'}
             </button>
             <input
               ref={fileInputRef}
@@ -215,7 +219,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
 
           {/* Display name */}
           <div className="space-y-1.5">
-            <Label htmlFor="profile-name">Display name</Label>
+            <Label htmlFor="profile-name">Display Name</Label>
             <Input
               id="profile-name"
               value={displayName}
@@ -230,8 +234,8 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
 
           {/* Claim code — carry this identity to another machine */}
           <div className="space-y-2">
-            <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
-              Claim code
+            <p className="text-[13px] uppercase tracking-widest text-muted-foreground font-medium">
+              Claim Code
             </p>
             <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
               <span className="flex-1 font-mono text-[20px] font-bold tracking-[0.12em]">
@@ -240,18 +244,18 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => copyText(player.claim_code, 'Claim code copied')}
-                aria-label="Copy claim code"
+                onClick={() => copyText(player.claim_code, 'Claim Code Copied')}
+                aria-label="Copy Claim Code"
               >
                 <Copy className="w-4 h-4" strokeWidth={1.75} />
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[13px] text-muted-foreground">
               Enter this on another PC to be you again.
             </p>
 
             <div className="pt-3 border-t border-border space-y-2">
-              <Label htmlFor="claim-input" className="text-sm font-medium">Have a code?</Label>
+              <Label htmlFor="claim-input" className="text-sm font-medium">Have a Code?</Label>
               <div className="flex items-center gap-2">
                 <Input
                   id="claim-input"
@@ -273,7 +277,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
                   {isClaiming
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <KeyRound className="w-4 h-4 mr-2" strokeWidth={1.75} />}
-                  Use code
+                  Use Code
                 </Button>
               </div>
             </div>
@@ -281,7 +285,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
 
           {/* Stats */}
           <div className="space-y-1.5">
-            <p className="text-sm font-medium">Your stats</p>
+            <p className="text-sm font-medium">Your Stats</p>
             <PlayerStats
               playerId={player.id}
               displayName={player.display_name}

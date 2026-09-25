@@ -53,10 +53,10 @@ export function CallerPanel({ gameId, onCallNext }: CallerPanelProps) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
+        <p className="text-[13px] uppercase tracking-widest text-muted-foreground font-medium">
           Caller Panel
         </p>
-        <span className="font-mono text-xs text-muted-foreground">
+        <span className="font-mono text-[13px] text-muted-foreground">
           {calledCount}/{totalItems}
         </span>
       </div>
@@ -85,14 +85,14 @@ export function CallerPanel({ gameId, onCallNext }: CallerPanelProps) {
       {/* Progress bar */}
       <div className="h-1.5 rounded-full bg-muted overflow-hidden">
         <div
-          className="h-full bg-primary transition-all duration-300 rounded-full"
+          className="h-full bg-primary transition-[width] duration-300 rounded-full"
           style={{ width: totalItems ? `${(calledCount / totalItems) * 100}%` : '0%' }}
         />
       </div>
 
       {/* Next item preview */}
       {nextItem && (
-        <p className="text-xs text-muted-foreground text-center">
+        <p className="text-[13px] text-muted-foreground text-center">
           Up next: <span className="text-foreground font-medium">{nextItem.text}</span>
         </p>
       )}
@@ -108,7 +108,7 @@ export function CallerPanel({ gameId, onCallNext }: CallerPanelProps) {
         ) : (
           <ChevronRight className="w-4 h-4" />
         )}
-        {allCalled ? 'All items called' : 'Call Next'}
+        {allCalled ? 'All Items Called' : 'Call Next'}
       </Button>
     </div>
   );

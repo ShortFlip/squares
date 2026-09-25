@@ -12,7 +12,7 @@ import { CardSplitWords } from '@/components/library/CardSplitWords';
 import { ConfirmDialog } from '@/components/library/TagDialogs';
 import type { CardTemplate } from '@/types/card';
 
-// The primitive's transition-all becomes a 150ms colour transition (the owner's motion rule).
+// A 150ms colour transition (the owner's motion rule); the Button primitive now carries it too.
 const BTN = 'transition-colors duration-150';
 
 /**
@@ -73,7 +73,7 @@ export function TemplateList() {
     return (
       <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
-        Loading your cards…
+        Loading Your Cards…
       </div>
     );
   }

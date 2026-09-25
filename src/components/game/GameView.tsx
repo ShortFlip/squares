@@ -22,6 +22,7 @@ import { playerColor, getInitials } from '@/lib/utils/player-color';
 import { playMark, playRoundStart, playBingo, isMuted, toggleMute } from '@/lib/sound';
 import { fireWinConfetti, fireSecondPlaceConfetti } from '@/lib/win-confetti';
 import { cn } from '@/lib/utils';
+import { PILL, PILL_TYPE } from '@/lib/pill';
 import {
   HEADER_H, NAME_ROW_H, PANEL_GAP, PANEL_PAD_X, PANEL_PAD_Y, heroGridSize,
 } from '@/lib/hero-fit';
@@ -34,9 +35,9 @@ const PATTERN_NAMES: Record<string, string> = {
   row: 'Row',
   column: 'Column',
   diagonal: 'Diagonal',
-  four_corners: 'Four corners',
+  four_corners: 'Four Corners',
   blackout: 'Blackout',
-  custom: 'Custom pattern',
+  custom: 'Custom Pattern',
 };
 
 interface GameViewProps {
@@ -271,7 +272,7 @@ export function GameView({
           <button
             type="button"
             onClick={() => copyLink()}
-            className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors duration-150"
+            className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] font-semibold bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors duration-150"
           >
             <LinkIcon className="w-[13px] h-[13px]" strokeWidth={1.75} />
             Copy Link
@@ -292,14 +293,14 @@ export function GameView({
             </div>
           )}
 
-          <span className="font-mono text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          <span className="font-mono text-[13px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Round {roundNumber}
           </span>
 
           {/* The Live pill is the only connection affordance while things are
               fine; when they are not, the amber bar below takes over. */}
           {!isReconnecting && (
-            <span className="flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.10em] bg-success/12 text-success border border-success/25">
+            <span className={cn(PILL, 'gap-1.5 bg-success/12 text-success border border-success/25')}>
               <span
                 className="w-[7px] h-[7px] rounded-full bg-success"
                 style={{ boxShadow: '0 0 9px var(--success)' }}
@@ -312,7 +313,7 @@ export function GameView({
             type="button"
             onClick={() => setMuted(toggleMute())}
             className="text-muted-foreground hover:text-foreground transition-colors duration-150"
-            title={muted ? 'Unmute sounds' : 'Mute sounds'}
+            title={muted ? 'Unmute Sounds' : 'Mute Sounds'}
           >
             {muted
               ? <VolumeX className="w-[18px] h-[18px]" strokeWidth={1.75} />
@@ -329,7 +330,7 @@ export function GameView({
             className="h-[3px] w-full bg-accent"
             style={{ boxShadow: '0 0 10px var(--accent)' }}
           />
-          <span className="absolute right-5 top-[5px] font-mono text-[11px] font-bold uppercase tracking-[0.10em] text-accent">
+          <span className={cn(PILL_TYPE, 'absolute right-5 top-[5px] text-accent')}>
             Reconnecting
           </span>
         </div>
@@ -392,13 +393,13 @@ export function GameView({
                   the biggest board on screen is plainly mine. */}
               {myPlacing ? (
                 <span
-                  className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] shrink-0 text-background"
+                  className={cn(PILL, 'shrink-0 text-background')}
                   style={{ backgroundColor: 'var(--gold)' }}
                 >
                   {myPlacing === 2 ? '2ND' : '1ST'}
                 </span>
               ) : legendGames.length > 0 ? null : (
-                <span className="rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] bg-primary/15 text-primary border border-primary/30 shrink-0">
+                <span className={cn(PILL, 'shrink-0 bg-primary/15 text-primary border border-primary/30')}>
                   YOUR BOARD
                 </span>
               )}
@@ -411,7 +412,7 @@ export function GameView({
               <BoardLegend games={legendGames} showNames={showLegendNames} className="mr-1" />
               <span
                 className={cn(
-                  'text-[12px] font-semibold',
+                  'text-[13px] font-semibold',
                   myOneAway ? 'text-accent'
                     : myLineLabel === 'No line yet' ? 'text-muted-foreground'
                     : 'text-foreground',
@@ -436,7 +437,6 @@ export function GameView({
               items={card}
               boardSize={size}
               freeSpace={false}
-              variant="game"
               styles={styles}
               markedIndices={markedSet}
               // Traditional: called-but-unmarked squares glow so players can
@@ -497,23 +497,21 @@ export function GameView({
               <p className="font-display text-[13px] font-bold uppercase tracking-[0.14em]">
                 Everyone Else
               </p>
-              <span className="text-[12px] font-medium text-muted-foreground">
-                {rail.length} playing
+              <span className="text-[13px] font-medium text-muted-foreground">
+                {rail.length} Playing
               </span>
             </div>
           )}
 
           {rail.length === 0 ? (
-            <p className="text-[12px] text-muted-foreground px-0.5">
+            <p className="text-[13px] text-muted-foreground px-0.5">
               Nobody else is here yet. Share the link.
             </p>
           ) : (
             rail.map((other) => (
               <RailCard
                 key={other.playerId}
-                playerId={other.playerId}
                 displayName={other.displayName}
-                avatarUrl={other.avatarUrl}
                 card={other.card}
                 marks={other.marks}
                 boardSize={size}

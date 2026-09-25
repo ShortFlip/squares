@@ -3,6 +3,7 @@
 import { Trophy } from 'lucide-react';
 import { HostControls } from './HostControls';
 import { cn } from '@/lib/utils';
+import { PILL } from '@/lib/pill';
 import type { GameWinner } from '@/stores/gameStore';
 
 interface WinBannerProps {
@@ -78,7 +79,7 @@ export function WinBanner({
 
       <div className="shrink-0 flex items-center gap-2.5">
         <span
-          className="rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tracking-[0.10em] text-background"
+          className={cn(PILL, 'text-background')}
           style={{ backgroundColor: 'var(--gold)' }}
         >
           1ST — {first.displayName.toUpperCase()}
@@ -86,7 +87,7 @@ export function WinBanner({
 
         {second ? (
           <span
-            className="rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tracking-[0.10em]"
+            className={PILL}
             style={{
               color: 'var(--gold)',
               border: '1px solid color-mix(in oklab, var(--gold) 60%, transparent)',
@@ -96,7 +97,7 @@ export function WinBanner({
           </span>
         ) : (
           <span
-            className="rounded-full px-2.5 py-1 font-mono text-[11px] font-bold tracking-[0.10em] text-muted-foreground"
+            className={cn(PILL, 'text-muted-foreground')}
             style={{ border: '1px solid rgba(255,255,255,0.14)' }}
           >
             2ND — OPEN

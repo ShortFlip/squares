@@ -14,7 +14,7 @@ interface PlayerListProps {
 export function PlayerList({ players, hostId, className }: PlayerListProps) {
   return (
     <div className={cn('space-y-2', className)}>
-      <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
+      <p className="text-[13px] uppercase tracking-widest text-muted-foreground font-medium">
         Players ({players.length})
       </p>
       <ul className="space-y-1.5">

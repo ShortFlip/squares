@@ -22,5 +22,5 @@ export async function copyText(text: string, successMessage: string): Promise<bo
 
 /** Copy the current room URL — the normal way people join is a pasted link. */
 export async function copyLink(): Promise<boolean> {
-  return copyText(window.location.href, 'Link copied');
+  return copyText(window.location.href, 'Link Copied');
 }

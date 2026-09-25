@@ -44,7 +44,7 @@ export function RoomCodeDisplay({ code, className }: RoomCodeDisplayProps) {
   return (
     <div className={cn('flex flex-col items-center gap-4', className)}>
       <div className="flex flex-col items-center gap-2">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">
+        <p className="text-[13px] uppercase tracking-widest text-muted-foreground font-medium">
           Room Code
         </p>
         <span
@@ -73,7 +73,7 @@ export function RoomCodeDisplay({ code, className }: RoomCodeDisplayProps) {
         {copied ? 'Link Copied' : 'Copy Invite Link'}
       </Button>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-[13px] text-muted-foreground">
         Paste the link in Discord, or read the code out.
       </p>
     </div>

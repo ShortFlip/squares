@@ -3,14 +3,12 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { MiniBoard } from '@/components/board/MiniBoard';
-import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
+import { PILL } from '@/lib/pill';
 import { bestLine, bestLineLabel } from '@/lib/game/win-detection';
 import type { SquareItem } from '@/types/card';
 
 interface RailCardProps {
-  playerId: string;
   displayName: string;
-  avatarUrl: string | null;
   card: SquareItem[];
   marks: number[];
   boardSize: number;
@@ -19,7 +17,7 @@ interface RailCardProps {
   synced: boolean;
   /** A confirmed winner this round — gets the gold treatment. */
   winner?: boolean;
-  /** 1 or 2, drawn as the `1ST` / `2ND` pill beside the name. */
+  /** 1 or 2, drawn as the `1ST` / `2ND` pill beside the score. */
   finishPosition?: number | null;
   /** The pattern the win was claimed with; the fallback when the marks that
    *  completed the line have not reached us yet. */
@@ -33,11 +31,16 @@ const POSITION_LABELS: Record<number, string> = { 1: '1ST', 2: '2ND', 3: '3RD' }
 /**
  * One other player in the rail: their whole board, their score, and how close
  * they are — all readable without clicking anything.
+ *
+ * The name has the first line to itself. Beside the 108px miniature the column
+ * is 134px wide (152px under the win banner), and a real name at 17px needs
+ * most of it — "Asian Baby Boi" is 116px — so the avatar circle that used to
+ * sit before it (34px with its gap) truncated names like that even before any
+ * pill. The placing pill rides on the score line instead, where it has room
+ * and where a placing belongs anyway: next to the number it was won with.
  */
 export function RailCard({
-  playerId,
   displayName,
-  avatarUrl,
   card,
   marks,
   boardSize,
@@ -94,35 +97,30 @@ export function RailCard({
       />
 
       <div className="flex flex-col justify-center gap-1.5 min-w-0 flex-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <PlayerAvatar
-            playerId={playerId}
-            displayName={displayName}
-            avatarUrl={avatarUrl}
-            size="xs"
-            initials={displayName.slice(0, 1).toUpperCase()}
-            className="w-[26px] h-[26px] text-[12px] font-display"
-          />
-          <span className="font-display text-[17px] font-bold truncate">{displayName}</span>
-          {winner && (
-            <span
-              className="shrink-0 rounded-full px-1.5 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] text-background"
-              style={{ backgroundColor: 'var(--gold)' }}
-            >
-              {POSITION_LABELS[finishPosition ?? 1] ?? '1ST'}
-            </span>
-          )}
-        </div>
+        {/* truncate stays as the backstop for a name longer than the column. */}
+        <span className="font-display text-[17px] font-bold truncate">{displayName}</span>
 
         {synced ? (
           <>
-            <span className="font-mono text-[13px] font-bold">
-              {marks.length} / {total}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[13px] font-bold">
+                {marks.length} / {total}
+              </span>
+              {winner && (
+                <span
+                  className={cn(PILL, 'shrink-0 text-background')}
+                  style={{ backgroundColor: 'var(--gold)' }}
+                >
+                  {POSITION_LABELS[finishPosition ?? 1] ?? '1ST'}
+                </span>
+              )}
+            </div>
             <div className="h-1 rounded-full bg-white/8 overflow-hidden">
               <div
                 className={cn(
-                  'h-full rounded-full transition-all duration-300',
+                  // The fill grows (width) and turns emerald or gold (colour, glow).
+                  // 300ms, as before: it is the rail's one panel-scale motion.
+                  'h-full rounded-full transition-[width,background-color,box-shadow] duration-300',
                   winner
                     ? ''
                     : oneAway
@@ -140,9 +138,11 @@ export function RailCard({
                 }}
               />
             </div>
+            {/* 13px can take two lines ("Column 5 — three away" is ~150px in a
+                134px column); balance splits it evenly instead of orphaning a word. */}
             <p
               className={cn(
-                'text-[11px] font-medium',
+                'text-[13px] font-medium text-balance',
                 winner || oneAway ? 'text-success' : 'text-muted-foreground',
               )}
             >
@@ -151,10 +151,10 @@ export function RailCard({
           </>
         ) : (
           <>
-            <span className="self-start rounded-full px-2 py-0.5 font-mono text-[10px] font-bold tracking-[0.10em] bg-accent/15 text-accent border border-accent/30">
+            <span className={cn(PILL, 'self-start bg-accent/15 text-accent border border-accent/30')}>
               SYNCING
             </span>
-            <p className="text-[11px] font-medium text-muted-foreground">
+            <p className="text-[13px] font-medium text-balance text-muted-foreground">
               Waiting for their board
             </p>
           </>

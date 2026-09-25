@@ -22,7 +22,7 @@ export function ThemePicker() {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs uppercase tracking-widest text-muted-foreground font-medium">Theme</p>
+      <p className="text-[13px] uppercase tracking-widest text-muted-foreground font-medium">Theme</p>
       <div className="grid grid-cols-3 gap-2">
         {THEMES.map((theme) => (
           <button
@@ -39,7 +39,7 @@ export function ThemePicker() {
               className="w-10 h-10 rounded-full border border-black/10"
               style={{ background: `linear-gradient(135deg, ${theme.bg} 60%, ${theme.accent})` }}
             />
-            <span className="text-xs text-muted-foreground">{theme.label}</span>
+            <span className="text-[13px] text-muted-foreground">{theme.label}</span>
 
             {/* Selected checkmark */}
             {current === theme.id && (
