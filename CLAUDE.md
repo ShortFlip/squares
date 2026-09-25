@@ -307,10 +307,11 @@ Read the file before changing the code it names. Each keeps the original text ve
 
 - Stay on Next.js + Supabase Realtime + Zustand + shadcn/ui — no custom socket server, no Redux; versions come from `package.json` — docs/decisions/0001-stack-choices.md
 - A win is whatever the claimant's tab detects; no Edge Function, RLS open, and that must change before outsiders join — docs/decisions/0002-client-side-win-verification.md
+- Every room keeps a `template_id` (unsaved cards are `saved = false` rows; Remove unsaves, never deletes); owner-only writes check the returned row count; after regenerating types, re-mark `players.Insert.claim_code` optional — docs/decisions/0003-item-library.md
 
 ### Plans
 
-- Item Library: tagged items, saved cards, the same N² set on every board, tint + icon + legend; no build or migration without his go — docs/plans/item-library.md
+- Item Library: built in PRs #25–#29 (tagged items, saved cards, one shared set per night, game icon markers); the build plan's decision log wins over the spec — docs/plans/item-library.md, docs/plans/item-library-build.md
 
 ### Original spec
 
@@ -352,3 +353,7 @@ Known gaps, deliberate or otherwise. None of these block a game night.
 - **The light theme's glass inversion has never been reviewed on a real game
   screen.** Latte was checked on the landing page only; the header, banner and
   rail all assume white-on-dark translucency.
+- **`/create` and `BoardEditor` are orphaned.** The library replaced them;
+  nothing links to them, but the route still works. Retire them.
+- **Square text is at line height 1.5, not 1.25.** A text-size class in
+  `squareClassName` makes `cn` drop the base `leading-tight`.
