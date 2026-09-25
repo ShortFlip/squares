@@ -156,7 +156,7 @@ function HomePageContent() {
                 autoCorrect="off"
                 spellCheck={false}
               />
-              {joinError && <p className="text-xs text-destructive">{joinError}</p>}
+              {joinError && <p className="text-[13px] text-destructive">{joinError}</p>}
               <Button
                 type="submit"
                 variant="outline"

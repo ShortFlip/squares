@@ -51,7 +51,7 @@ export function DisplayNameDialog({ open, onSubmit }: DisplayNameDialogProps) {
     <Dialog open={open} onOpenChange={() => {}} disablePointerDismissal={true}>
       <DialogContent className="sm:max-w-sm" showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle className="font-display text-xl">What do we call you?</DialogTitle>
+          <DialogTitle className="font-display text-xl">What Do We Call You?</DialogTitle>
           <DialogDescription>
             Pick a display name for your friends to see. You can change it later.
           </DialogDescription>
@@ -59,7 +59,7 @@ export function DisplayNameDialog({ open, onSubmit }: DisplayNameDialogProps) {
 
         <form onSubmit={handleSubmit} className="space-y-4 pt-2">
           <div className="space-y-2">
-            <Label htmlFor="display-name">Display name</Label>
+            <Label htmlFor="display-name">Display Name</Label>
             <Input
               id="display-name"
               placeholder="e.g. BingoQueen, DabMaster..."
@@ -72,7 +72,7 @@ export function DisplayNameDialog({ open, onSubmit }: DisplayNameDialogProps) {
               autoFocus
               autoComplete="off"
             />
-            <div className="flex justify-between text-xs text-muted-foreground">
+            <div className="flex justify-between text-[13px] text-muted-foreground">
               {error ? (
                 <span className="text-destructive">{error}</span>
               ) : (
@@ -87,7 +87,7 @@ export function DisplayNameDialog({ open, onSubmit }: DisplayNameDialogProps) {
             className="w-full"
             disabled={!isValid || isSubmitting}
           >
-            {isSubmitting ? "Let's go..." : "Let's play"}
+            {isSubmitting ? "Let's Go…" : "Let's Play"}
           </Button>
         </form>
       </DialogContent>

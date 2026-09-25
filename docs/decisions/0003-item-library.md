@@ -62,6 +62,7 @@ Not done:
 - `/create` and `BoardEditor` are still reachable by URL. Retire them next.
 - Gate runs left test players, libraries, cards and rooms in the live
   database.
-- Square text renders at line height 1.5, not the intended 1.25:
+- ~~Square text renders at line height 1.5, not the intended 1.25:
   `squareClassName`'s text size class makes `cn` drop `leading-tight`. This
-  predates the library.
+  predates the library.~~ Fixed 2026-09-25: `leading-tight` now sits on the
+  square's text span, where nothing is merged into it.

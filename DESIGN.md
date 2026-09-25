@@ -196,22 +196,31 @@ These were open questions when Part 2 was written. They are now answered by
 what shipped in PRs #7–#12 — this section describes the app as built, and is
 the reference for anything added next.
 
-**Type scale.** Three families, each with a job.
+**Type scale.** Three families, each with a job. Nothing he reads is under
+13px (ruled 2026-09-23, applied 2026-09-25); the only exemption is text sized
+by measurement, below the table.
 
 | Role | Face | Size |
 |---|---|---|
 | Win headline | Display, 800 | 38 |
 | Player name (hero) | Display, 700 | 20 |
+| Player name (rail) | Display, 700 | 17 |
 | Wordmark, rail and panel labels | Display, 700–800 | 13–15 |
 | Room code | Mono, 700, `0.14em` | 26 |
 | My score `N / 25` | Mono, 700 | 15 |
 | Rail score `N / 25` | Mono, 700 | 13 |
-| Pills — `LIVE`, `YOUR BOARD`, `1ST`, `SYNCING`, `RECONNECTING` | Mono, 700, `0.10em`, uppercase | 10–12 |
-| Body, status lines, buttons | Body, 500–600 | 11–13 |
+| Pills — `LIVE`, `YOUR BOARD`, `1ST`/`2ND`, `1ST — NAME`, `2ND — OPEN`, `SYNCING`, History's placing; `RECONNECTING` and `OFFLINE` in the same type without the box | Mono, 700, `0.04em`, uppercase, line height 1, padding 3 × 8 (`PILL` in `src/lib/pill.ts`) | 13 |
+| Body, status lines, buttons, labels, captions, table text, chips, avatar initials | Body, 500–600 | 13 minimum |
+| Square text *(exempt: fitted)* | Body, 500, line height 1.25 | 12, 11 under the banner or on 6×6, easing to 10 on small squares |
 
-Square text is 12, dropping to 11 when the win banner is up or the board is
-6×6. Every number a player compares against another number is monospace, so
-digits line up down the rail.
+Square text is sized by measurement (`clamp(10px, 12–13cqw, 11–12px)` against
+the square's own width), so it is the one exemption from the floor, with the
+`FREE` label inside the free square and the text-less miniature tiles. Its line
+height is 1.25, set on the text itself in BingoSquare, because a caller's
+text-size class makes `cn` drop any `leading-*` on the square. A pill is 19px
+tall (21px with a border), the height the 10px pills had, so raising the type
+did not raise any row. Every number a player compares against another number
+is monospace, so digits line up down the rail.
 
 **Radius language.** Radius encodes size, not decoration.
 
@@ -254,7 +263,7 @@ and do not follow the app theme.
 3. Two confetti cannons fire from the top corners for **1.5 s** — violet,
    amber, gold, pink.
 4. The winner's rail card turns gold: gold border and glow, a mono `1ST`
-   beside the name, gold progress fill, and the miniature outlines the winning
+   beside the score, gold progress fill, and the miniature outlines the winning
    line in gold instead of emerald.
 
 The board stays interactive the whole time. A **second winner** is a quieter
@@ -279,7 +288,11 @@ forces; 2 px gaps, 6 px frame padding, radius 6 on the frame and 2 on a tile.
 A rail card pairs the miniature with the name, a mono `N / 25`, a 4 px progress
 bar (emerald when they are one away, amber otherwise) and the same best-line
 sentence my own board uses: `Row 3 — one away`, `Column 2 — two away`,
-`No line yet`, `Bingo — column 2`.
+`No line yet`, `Bingo — column 2`. The name has its line to itself — no avatar
+circle — because beside the miniature the column is 134px (152px under the
+banner) and a real name at 17px ("Asian Baby Boi", 116px) did not fit after a
+26px avatar; the `1ST`/`2ND` pill sits beside the score. At 13px the sentence
+may take two balanced lines inside the miniature's height.
 
 **Reconnecting and syncing.** Both are ambient; neither takes a click or
 covers the board.
@@ -333,6 +346,12 @@ One line each, dated, so they are not relitigated.
   is darker and redder than amber (0.145 apart in OKLab, was 0.097). The DB
   stores the keys, so the values can move without a migration. Icon keys also
   offer Skull and Bomb.
+- **Type floor (2026-09-25).** 13px floor applied app-wide; pills 13px; square
+  text stays fitted and exempt; square line height 1.25. The pill scale is one
+  constant (`src/lib/pill.ts`) with tracking cut from 0.10em to 0.04em so 13px
+  does not shout. The rail card drops its avatar and moves the placing pill
+  beside the score so real names show whole; the profile dialog scrolls inside
+  the window instead of running off it.
 
 ---
 

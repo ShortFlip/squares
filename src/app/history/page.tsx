@@ -12,6 +12,7 @@ import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { formatPattern } from '@/lib/achievements';
 import { cardLegend } from '@/lib/library/legend';
 import { cn } from '@/lib/utils';
+import { PILL } from '@/lib/pill';
 import type { SquareItem, CardStyles } from '@/types/card';
 
 /** One player's card in one round. */
@@ -248,7 +249,7 @@ function HistoryPageContent() {
 
         {nights.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center space-y-1">
-            <p className="font-display font-bold">No nights yet</p>
+            <p className="font-display font-bold">No Nights Yet</p>
             <p className="text-muted-foreground text-sm">
               Your game nights show up here after the first one.
             </p>
@@ -367,7 +368,7 @@ function RoundRow({ round, night, myId }: { round: Round; night: Night; myId: st
         <p className="text-[13px] uppercase tracking-widest text-muted-foreground">
           Round <span className="font-mono">{round.roundNumber}</span>
         </p>
-        {cancelled && <span className="text-[13px] text-muted-foreground">No winner</span>}
+        {cancelled && <span className="text-[13px] text-muted-foreground">No Winner</span>}
       </div>
 
       <ul className="space-y-1">
@@ -386,7 +387,7 @@ function RoundRow({ round, night, myId }: { round: Round; night: Night; myId: st
             {p.won && !cancelled && (
               <>
                 <span
-                  className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold"
+                  className={cn(PILL, 'shrink-0')}
                   style={{
                     color: 'var(--gold)',
                     backgroundColor: 'color-mix(in oklab, var(--gold) 18%, transparent)',
@@ -450,7 +451,6 @@ function CardSnapshot({ entry, night }: { entry: RoundPlayer; night: Night }) {
           items={items}
           boardSize={night.boardSize}
           freeSpace={hasFreeSpace}
-          variant="game"
           styles={night.styles}
           markedIndices={markedIndices}
           calledIndices={markedIndices}

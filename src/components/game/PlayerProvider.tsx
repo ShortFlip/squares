@@ -143,7 +143,7 @@ export function PlayerProvider({ children }: PlayerProviderProps) {
       {player && (
         <button
           onClick={() => setProfileOpen(true)}
-          className="fixed top-3 right-4 z-40 rounded-full ring-2 ring-border hover:ring-primary transition-all"
+          className="fixed top-3 right-4 z-40 rounded-full ring-2 ring-border hover:ring-primary transition-shadow duration-150"
           aria-label="Edit profile"
         >
           <PlayerAvatar

@@ -5,8 +5,10 @@ import { cn } from '@/lib/utils';
 import { playerColor, getInitials } from '@/lib/utils/player-color';
 
 const SIZE_CLASSES = {
-  xs:  'w-6  h-6  text-[10px]',
-  sm:  'w-8  h-8  text-xs',
+  // Initials follow the 13px floor down to the smallest circle: two capitals
+  // at 13px bold are ~17px wide, inside the 24px xs circle.
+  xs:  'w-6  h-6  text-[13px]',
+  sm:  'w-8  h-8  text-[13px]',
   md:  'w-10 h-10 text-sm',
   lg:  'w-14 h-14 text-base',
   xl:  'w-20 h-20 text-xl',

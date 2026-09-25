@@ -7,10 +7,8 @@ import type { SquareItem, CardStyles } from '@/types/card';
 interface BingoSquareProps {
   item: SquareItem;
   index: number;
-  variant: 'preview' | 'game';
   isFreeSpace?: boolean;
   styles?: CardStyles;
-  // game
   isMarked?: boolean;
   isCalled?: boolean;
   onMark?: () => void;
@@ -55,7 +53,6 @@ const SMALL_SQUARE_TEXT = '@max-[78px]:pt-[18px]';
 
 export function BingoSquare({
   item,
-  variant,
   isFreeSpace = false,
   styles,
   isMarked = false,
@@ -70,13 +67,17 @@ export function BingoSquare({
   const base = cn(
     'relative flex items-center justify-center p-[4%]',
     // Fluid font size: 12cqw = 12% of the cell width — scales with board size
-    'text-center font-medium leading-tight',
+    'text-center font-medium',
     'text-[clamp(0.6rem,12cqw,1.1rem)]',
-    'border border-grid-line transition-all duration-150',
+    // Only what a mark, a call, a hover or the hot lane changes. The dab and
+    // the breathing glow are keyframe animations (.sq-marked) and need no
+    // transition; transition-all also eased padding and the fitted font
+    // size whenever the board resized under the win banner.
+    'border border-grid-line transition-[background-color,border-color,color,box-shadow] duration-150',
     'aspect-square w-full overflow-hidden',
   );
 
-  // Shared inline style for text + border color (applies to all variants)
+  // Shared inline style for text + border color (the free space uses it too)
   const baseInlineStyle = {
     borderColor: styles?.gridLine,
     color: styles?.textColor,
@@ -111,65 +112,56 @@ export function BingoSquare({
     );
   }
 
-  // GAME variant — mark on click, glow when marked
-  if (variant === 'game') {
-    // The pulse keyframes read --sq-glow, so a custom marked color drives the
-    // animation too. The static box-shadow below is byte-identical to the
-    // keyframes' 0%/100% frame, so the glow settles without a visible jump.
-    const customGlow = styles?.squareBgMarked;
-    const gameStyle = {
-      ...baseInlineStyle,
-      ...(hasCustomColors && {
-        backgroundColor: isMarked ? styles?.squareBgMarked : styles?.squareBg,
-        ...(isMarked && customGlow
-          ? {
-              '--sq-glow': customGlow,
-              boxShadow: `0 0 0 2px ${customGlow}, 0 0 14px color-mix(in oklab, ${customGlow} 35%, transparent)`,
-            }
-          : {}),
-      }),
-    } as React.CSSProperties;
+  // A playable square: mark on click, glow when marked.
+  // The pulse keyframes read --sq-glow, so a custom marked color drives the
+  // animation too. The static box-shadow below is byte-identical to the
+  // keyframes' 0%/100% frame, so the glow settles without a visible jump.
+  const customGlow = styles?.squareBgMarked;
+  const gameStyle = {
+    ...baseInlineStyle,
+    ...(hasCustomColors && {
+      backgroundColor: isMarked ? styles?.squareBgMarked : styles?.squareBg,
+      ...(isMarked && customGlow
+        ? {
+            '--sq-glow': customGlow,
+            boxShadow: `0 0 0 2px ${customGlow}, 0 0 14px color-mix(in oklab, ${customGlow} 35%, transparent)`,
+          }
+        : {}),
+    }),
+  } as React.CSSProperties;
 
-    return (
-      <button
-        type="button"
-        onClick={onMark}
-        style={gameStyle}
-        className={cn(
-          base,
-          'cursor-pointer select-none',
-          // 150ms dab + amber breathing pulse that settles. Applied for custom
-          // palettes too — the keyframes pick up --sq-glow from the inline style.
-          isMarked && 'sq-marked',
-          // Default Tailwind colors only when no custom override
-          !hasCustomColors && isMarked && [
-            // No ring-* here: the 2px ring is baked into the shadow below so it
-            // matches the pulse keyframes exactly.
-            'bg-accent/25 text-foreground',
-            'shadow-[0_0_0_2px_var(--accent),0_0_14px_color-mix(in_oklab,var(--accent)_35%,transparent)]',
-          ],
-          !hasCustomColors && isCalled && !isMarked && 'bg-primary/10 text-foreground',
-          !hasCustomColors && !isMarked && !isCalled && 'hover:bg-primary/5',
-          game && SMALL_SQUARE_TEXT,
-          className,
-        )}
-      >
-        {game && <GameMarker game={game} />}
-        <span className="break-words line-clamp-3">{item.text}</span>
-      </button>
-    );
-  }
-
-  // PREVIEW variant — read-only display
   return (
-    <div
-      style={{
-        ...baseInlineStyle,
-        backgroundColor: styles?.squareBg,
-      }}
-      className={cn(base, !styles?.squareBg && 'bg-card/40', 'select-none', className)}
+    <button
+      type="button"
+      onClick={onMark}
+      style={gameStyle}
+      className={cn(
+        base,
+        'cursor-pointer select-none',
+        // 150ms dab + amber breathing pulse that settles. Applied for custom
+        // palettes too — the keyframes pick up --sq-glow from the inline style.
+        isMarked && 'sq-marked',
+        // Default Tailwind colors only when no custom override
+        !hasCustomColors && isMarked && [
+          // No ring-* here: the 2px ring is baked into the shadow below so it
+          // matches the pulse keyframes exactly.
+          'bg-accent/25 text-foreground',
+          'shadow-[0_0_0_2px_var(--accent),0_0_14px_color-mix(in_oklab,var(--accent)_35%,transparent)]',
+        ],
+        !hasCustomColors && isCalled && !isMarked && 'bg-primary/10 text-foreground',
+        !hasCustomColors && !isMarked && !isCalled && 'hover:bg-primary/5',
+        game && SMALL_SQUARE_TEXT,
+        className,
+      )}
     >
-      <span className="break-words line-clamp-3">{item.text}</span>
-    </div>
+      {game && <GameMarker game={game} />}
+      {/* The line height lives on the text itself, not on the square. Every
+          caller hands the square a text-size class (squareClassName), and
+          cn()/tailwind-merge treats a text size as overriding any leading-*
+          before it, so a leading-tight on the square was silently dropped and
+          the text fell back to the body's 1.5. Here nothing is merged into it,
+          so three lines stay 1.25 tall wherever the board is drawn. */}
+      <span className="break-words line-clamp-3 leading-tight">{item.text}</span>
+    </button>
   );
 }

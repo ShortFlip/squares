@@ -105,12 +105,13 @@ export default function LeaderboardPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-12 text-center">
-            <p className="font-display font-bold">No one on the board yet</p>
+            <p className="font-display font-bold">No One on the Board Yet</p>
           </div>
         ) : (
           <>
-            {/* Column headers */}
-            <div className="grid grid-cols-[2rem_1fr_3rem_3rem_4rem_5rem] gap-3 items-center px-4 text-[11px] text-muted-foreground uppercase tracking-widest">
+            {/* Column headers. At 13px, GAMES needs ~52px, so its column is
+                3.5rem (it was 3rem, sized for 11px); the rows share the template. */}
+            <div className="grid grid-cols-[2rem_1fr_3rem_3.5rem_4rem_5rem] gap-3 items-center px-4 text-[13px] text-muted-foreground uppercase tracking-widest">
               <span>#</span>
               <span>Player</span>
               <span className="text-right">Wins</span>
@@ -130,7 +131,7 @@ export default function LeaderboardPage() {
                   <li
                     key={row.playerId}
                     className={cn(
-                      'grid grid-cols-[2rem_1fr_3rem_3rem_4rem_5rem] gap-3 items-center',
+                      'grid grid-cols-[2rem_1fr_3rem_3.5rem_4rem_5rem] gap-3 items-center',
                       'rounded-xl border px-4 py-3 transition-colors',
                       isMe
                         ? 'border-primary/40 bg-primary/5'
@@ -153,7 +154,7 @@ export default function LeaderboardPage() {
                       <span className="text-sm font-medium truncate">
                         {row.displayName}
                         {isMe && (
-                          <span className="text-muted-foreground text-xs font-normal ml-1">(you)</span>
+                          <span className="text-muted-foreground text-[13px] font-normal ml-1">(you)</span>
                         )}
                       </span>
                     </div>

@@ -124,7 +124,7 @@ export function GameLobby({
 
         {/* Connection dot */}
         <div className="flex justify-center">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
             <span className={`w-2 h-2 rounded-full ${connection === 'live' ? 'bg-success animate-pulse' : 'bg-muted-foreground'}`} />
             {connection === 'live' ? 'Connected' : 'Connecting…'}
           </div>
@@ -155,7 +155,7 @@ export function GameLobby({
                 {isStarting ? 'Starting…' : 'Start Game'}
               </Button>
               {presentPlayers.length < 2 && (
-                <p className="text-xs text-muted-foreground">Need at least one other player</p>
+                <p className="text-[13px] text-muted-foreground">Need at least one other player</p>
               )}
             </>
           ) : (

@@ -17,7 +17,6 @@ interface BingoBoardProps {
   items: SquareItem[];
   boardSize: number;
   freeSpace: boolean;
-  variant: 'preview' | 'game';
   styles?: CardStyles;
   className?: string;
   // game props
@@ -39,7 +38,6 @@ export function BingoBoard({
   items,
   boardSize,
   freeSpace,
-  variant,
   styles,
   className,
   markedIndices,
@@ -65,8 +63,8 @@ export function BingoBoard({
       )}
     >
       {Array.from({ length: total }, (_, gridIndex) => {
-        // Two ways a cell can be the free space: positionally (History and
-        // preview, which pass a plain item list) or because the generated card
+        // Two ways a cell can be the free space: positionally (History, which
+        // passes a plain item list) or because the generated card
         // already carries the flag (the game, whose card includes the item).
         const isFreeSpace =
           (freeSpace && gridIndex === centerIndex) || items[gridIndex]?.isFreeSpace === true;
@@ -87,7 +85,6 @@ export function BingoBoard({
             <BingoSquare
               index={gridIndex}
               item={item}
-              variant={variant}
               isFreeSpace={isFreeSpace}
               styles={styles}
               isMarked={markedIndices?.has(gridIndex) ?? false}

@@ -85,7 +85,7 @@ export function PlayerStats({ playerId, displayName, avatarUrl, compact }: Playe
     return (
       <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        Loading stats…
+        Loading Stats…
       </div>
     );
   }
@@ -109,14 +109,14 @@ export function PlayerStats({ playerId, displayName, avatarUrl, compact }: Playe
           <StatPill label="Win %" value={`${winRate}%`} />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <StatPill label="Best time" value={formatTime(stats.bestTimeMs)} />
-          <StatPill label="Top pattern" value={formatPattern(stats.topPattern)} />
+          <StatPill label="Best Time" value={formatTime(stats.bestTimeMs)} />
+          <StatPill label="Top Pattern" value={formatPattern(stats.topPattern)} />
         </div>
 
         {/* Badges */}
         <div>
-          <p className="text-xs text-muted-foreground mb-2">
-            Badges — {unlockedCount}/{stats.achievements.length} unlocked
+          <p className="text-[13px] text-muted-foreground mb-2">
+            Badges — {unlockedCount}/{stats.achievements.length} Unlocked
           </p>
           <div className="flex flex-wrap gap-2">
             {stats.achievements.map((badge) => (
@@ -141,7 +141,7 @@ export function PlayerStats({ playerId, displayName, avatarUrl, compact }: Playe
         />
         <div>
           <p className="font-semibold">{displayName}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[13px] text-muted-foreground">
             {stats.totalGames} games · {unlockedCount} badges
           </p>
         </div>
@@ -152,12 +152,12 @@ export function PlayerStats({ playerId, displayName, avatarUrl, compact }: Playe
         <StatPill label="Games" value={stats.totalGames} />
         <StatPill label="Wins" value={stats.totalWins} highlight />
         <StatPill label="Win %" value={`${winRate}%`} />
-        <StatPill label="Best time" value={formatTime(stats.bestTimeMs)} />
+        <StatPill label="Best Time" value={formatTime(stats.bestTimeMs)} />
       </div>
 
       {/* Badges */}
       <div>
-        <p className="text-xs text-muted-foreground mb-2 uppercase tracking-widest">Badges</p>
+        <p className="text-[13px] text-muted-foreground mb-2 uppercase tracking-widest">Badges</p>
         <div className="flex flex-wrap gap-2">
           {stats.achievements.map((badge) => (
             <BadgePip key={badge.id} badge={badge} />
@@ -182,7 +182,7 @@ function StatPill({
       <p className={`font-display font-bold text-lg ${highlight ? 'text-primary' : 'text-foreground'}`}>
         {value}
       </p>
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</p>
+      <p className="text-[13px] text-muted-foreground uppercase tracking-wide">{label}</p>
     </div>
   );
 }
@@ -193,7 +193,7 @@ function BadgePip({ badge }: { badge: Achievement }) {
       title={`${badge.label}: ${badge.description}`}
       className={`
         flex flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-center
-        border transition-all
+        border
         ${badge.unlocked
           ? 'border-primary/30 bg-primary/10'
           : 'border-border bg-muted/30 opacity-40 grayscale'
@@ -201,7 +201,9 @@ function BadgePip({ badge }: { badge: Achievement }) {
       `}
     >
       <span className="text-lg leading-none">{badge.emoji}</span>
-      <span className="text-[9px] text-muted-foreground leading-none max-w-[48px]">
+      {/* 13px words do not fit the old 48px (Corners, Blackout!): 72px holds
+          the longest word, and a two-word label takes two tight lines. */}
+      <span className="text-[13px] text-muted-foreground leading-tight max-w-[72px]">
         {badge.label}
       </span>
     </div>

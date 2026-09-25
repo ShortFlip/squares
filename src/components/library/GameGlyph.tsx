@@ -43,8 +43,8 @@ export const chipClass = (active: boolean) =>
   );
 
 /**
- * Every Button on this page swaps the primitive's transition-all for a 150ms
- * colour transition (the owner's motion rule); tailwind-merge drops the old one.
+ * A 150ms colour transition for every Button on this page (the owner's motion
+ * rule). The Button primitive now carries the same one, so this only restates it.
  */
 export const BTN = 'transition-colors duration-150';
 
