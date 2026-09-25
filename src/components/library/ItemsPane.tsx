@@ -284,10 +284,14 @@ export function ItemsPane() {
                 <Plus strokeWidth={1.75} />
                 New Game
               </Button>
-              <Button variant="outline" className={BTN} onClick={() => setNewTagOpen(true)}>
-                <Plus strokeWidth={1.75} />
-                New Tag
-              </Button>
+              {/* Hidden until a tag exists: with none, it's a button nothing on the page uses.
+                  Import's Extra Tags still creates the first one. */}
+              {extraTags.length > 0 && (
+                <Button variant="outline" className={BTN} onClick={() => setNewTagOpen(true)}>
+                  <Plus strokeWidth={1.75} />
+                  New Tag
+                </Button>
+              )}
             </div>
           )}
         </div>
