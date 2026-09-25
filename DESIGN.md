@@ -313,6 +313,26 @@ One line each, dated, so they are not relitigated.
 - **Latte landing tiles are flat (2026-09-24).** On Latte the History and
   Leaderboard tiles drop the glass drop shadow (`.glass-tile`) to match the
   flat Host/Join cards above them. Latte glass everywhere else is unchanged.
+- **Game marker (2026-09-24).** A square on a card with games carries its
+  game's icon alone in the top-left corner, in the game colour, stroke 1.75:
+  16px, 14px on squares under 88px, 12px under 78px (the text then sits below
+  it). The square's face is untouched, so marked amber, the hot lane and the
+  called wash read as before, and a marked square keeps its marker. The legend
+  (icon + name at 13, only the games on that card) sits in the hero name row,
+  where it takes the Your Board pill's place, and above the History snapshot;
+  the names fall back to icons when the row cannot hold them. Rail miniatures
+  stay plain. The `car` key draws the front-view car. Rejected: a 12% wash (a
+  Call of Duty square on the hot lane was 0.02–0.03 OKLab from marked amber),
+  a 3px edge bar plus the icon ("too much going on"), a solid corner tab
+  (busier still).
+- **Game palette (2026-09-24).** Sky `oklch(0.64 0.15 240)`, cyan
+  `oklch(0.61 0.11 200)`, rose `oklch(0.62 0.22 8)`, orange
+  `oklch(0.66 0.19 38)`, pink `oklch(0.66 0.21 345)`. Each is at least 3:1 on
+  the Latte square (sky 2.9:1 on the bare Latte ground) and 4.2:1 on the
+  Midnight square, with hues clear of amber, gold, emerald and violet; orange
+  is darker and redder than amber (0.145 apart in OKLab, was 0.097). The DB
+  stores the keys, so the values can move without a migration. Icon keys also
+  offer Skull and Bomb.
 
 ---
 

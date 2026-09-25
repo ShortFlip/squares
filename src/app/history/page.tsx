@@ -7,8 +7,10 @@ import { ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { usePlayer } from '@/hooks/usePlayer';
 import { BingoBoard } from '@/components/board/BingoBoard';
+import { BoardLegend } from '@/components/board/BoardLegend';
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar';
 import { formatPattern } from '@/lib/achievements';
+import { cardLegend } from '@/lib/library/legend';
 import { cn } from '@/lib/utils';
 import type { SquareItem, CardStyles } from '@/types/card';
 
@@ -424,10 +426,20 @@ function CardSnapshot({ entry, night }: { entry: RoundPlayer; night: Night }) {
   // Filter out the FREE sentinel so BingoBoard can insert it via its own logic
   const items = hasFreeSpace ? raw.filter((item) => !item.isFreeSpace) : raw;
   const markedIndices = new Set(entry.markIndices);
+  // The same key the game screen shows above the hero board: only the games
+  // with a square on this card. A legacy card has none, and keeps the plain label.
+  const games = cardLegend(night.styles.legend, raw);
 
   return (
     <div className="pt-2">
-      <p className="text-[13px] text-muted-foreground mb-2 uppercase tracking-widest">Your card</p>
+      {games.length > 0 ? (
+        <div className="mb-2 flex max-w-[480px] items-center justify-between gap-3">
+          <p className="text-[13px] text-muted-foreground uppercase tracking-widest">Your card</p>
+          <BoardLegend games={games} />
+        </div>
+      ) : (
+        <p className="text-[13px] text-muted-foreground mb-2 uppercase tracking-widest">Your card</p>
+      )}
       {/* pointer-events-none prevents interaction with the snapshot */}
       <div className="pointer-events-none">
         {/* The same text sizing as the hero board in GameView, at a width that
