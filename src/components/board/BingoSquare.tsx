@@ -1,6 +1,5 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import type { BoardGame } from '@/lib/library/legend';
 import type { SquareItem, CardStyles } from '@/types/card';
@@ -8,14 +7,9 @@ import type { SquareItem, CardStyles } from '@/types/card';
 interface BingoSquareProps {
   item: SquareItem;
   index: number;
-  variant: 'editor' | 'preview' | 'game';
+  variant: 'preview' | 'game';
   isFreeSpace?: boolean;
   styles?: CardStyles;
-  // editor
-  isEditing?: boolean;
-  onEdit?: () => void;
-  onChange?: (item: SquareItem) => void;
-  onBlur?: () => void;
   // game
   isMarked?: boolean;
   isCalled?: boolean;
@@ -64,26 +58,12 @@ export function BingoSquare({
   variant,
   isFreeSpace = false,
   styles,
-  isEditing = false,
-  onEdit,
-  onChange,
-  onBlur,
   isMarked = false,
   isCalled = false,
   onMark,
   game = null,
   className,
 }: BingoSquareProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Auto-focus the input whenever this square enters edit mode
-  useEffect(() => {
-    if (isEditing) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
-  }, [isEditing]);
-
   // Whether custom color overrides are active — disables conflicting Tailwind classes
   const hasCustomColors = !!(styles?.squareBg || styles?.squareBgMarked);
 
@@ -128,55 +108,6 @@ export function BingoSquare({
           Free
         </span>
       </div>
-    );
-  }
-
-  // EDITOR variant — inline editing on click
-  if (variant === 'editor') {
-    if (isEditing) {
-      return (
-        <div
-          style={baseInlineStyle}
-          className={cn(base, 'bg-card ring-2 ring-primary p-0', className)}
-        >
-          <input
-            ref={inputRef}
-            value={item.text ?? ''}
-            onChange={(e) => onChange?.({ ...item, text: e.target.value })}
-            onBlur={onBlur}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === 'Escape') {
-                e.preventDefault();
-                onBlur?.();
-              }
-            }}
-            className="w-full h-full text-center bg-transparent outline-none text-sm px-1 text-foreground placeholder:text-muted-foreground/40"
-            maxLength={60}
-            placeholder="Type here…"
-          />
-        </div>
-      );
-    }
-
-    return (
-      <button
-        type="button"
-        onClick={onEdit}
-        style={{
-          ...baseInlineStyle,
-          backgroundColor: styles?.squareBg,
-        }}
-        className={cn(
-          base,
-          'cursor-pointer active:scale-95',
-          !hasCustomColors && 'hover:bg-primary/10 hover:ring-1 hover:ring-primary/50',
-          item.text ? 'text-foreground' : 'text-muted-foreground/25',
-          className,
-        )}
-        title="Click to edit"
-      >
-        <span className="break-words line-clamp-3">{item.text || '+'}</span>
-      </button>
     );
   }
 

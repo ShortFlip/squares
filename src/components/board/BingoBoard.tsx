@@ -17,19 +17,14 @@ interface BingoBoardProps {
   items: SquareItem[];
   boardSize: number;
   freeSpace: boolean;
-  variant: 'editor' | 'preview' | 'game';
+  variant: 'preview' | 'game';
   styles?: CardStyles;
   className?: string;
-  // editor props
-  editingIndex?: number | null;
-  onEditSquare?: (gridIndex: number) => void;
-  onChangeSquare?: (itemIndex: number, item: SquareItem) => void;
-  onBlurSquare?: () => void;
   // game props
   markedIndices?: Set<number>;
   calledIndices?: Set<number>;
   onMarkSquare?: (gridIndex: number) => void;
-  /** Grid gap utility. The game screen runs an 8px gap; editors stay at 4px. */
+  /** Grid gap utility. The game screen runs an 8px gap; everything else stays at 4px. */
   gapClass?: string;
   /** Extra classes for every square — lets a caller set radius and text size. */
   squareClassName?: string;
@@ -47,10 +42,6 @@ export function BingoBoard({
   variant,
   styles,
   className,
-  editingIndex = null,
-  onEditSquare,
-  onChangeSquare,
-  onBlurSquare,
   markedIndices,
   calledIndices,
   onMarkSquare,
@@ -74,7 +65,7 @@ export function BingoBoard({
       )}
     >
       {Array.from({ length: total }, (_, gridIndex) => {
-        // Two ways a cell can be the free space: positionally (editor and
+        // Two ways a cell can be the free space: positionally (History and
         // preview, which pass a plain item list) or because the generated card
         // already carries the flag (the game, whose card includes the item).
         const isFreeSpace =
@@ -99,10 +90,6 @@ export function BingoBoard({
               variant={variant}
               isFreeSpace={isFreeSpace}
               styles={styles}
-              isEditing={variant === 'editor' && editingIndex === gridIndex}
-              onEdit={() => onEditSquare?.(gridIndex)}
-              onChange={(newItem) => onChangeSquare?.(itemIndex, newItem)}
-              onBlur={onBlurSquare}
               isMarked={markedIndices?.has(gridIndex) ?? false}
               isCalled={calledIndices?.has(gridIndex) ?? false}
               onMark={() => onMarkSquare?.(gridIndex)}
