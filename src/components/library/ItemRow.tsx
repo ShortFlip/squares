@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useRef, useState } from 'react';
-import { Check, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
@@ -97,7 +97,9 @@ export const ItemRow = memo(function ItemRow({
       )}
     >
       {/* Keyed by the flash number, so lighting the same row again remounts it and replays the fade. */}
-      {flash > 0 && <span key={flash} aria-hidden data-testid="item-flash" className="item-flash pointer-events-none absolute inset-0 -z-10" />}
+      {/* Amber edge = on the card; replaces a column of identical checkmarks. */}
+      {onCard && <span aria-hidden title="On The Card" className="absolute inset-y-0 left-0 w-0.5 bg-accent" />}
+      {flash > 0 &&<span key={flash} aria-hidden data-testid="item-flash" className="item-flash pointer-events-none absolute inset-0 -z-10" />}
       <Checkbox
         checked={selected}
         onCheckedChange={() => onToggleSelected(item.id)}
@@ -159,17 +161,23 @@ export const ItemRow = memo(function ItemRow({
 
       <RowGameMenu games={games} value={item.gameTagId} onChange={(id) => onSetGame(item.id, id)} />
 
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className={cn(BTN, onCard && 'text-success disabled:opacity-100')}
-        disabled={onCard || cardFull}
-        onClick={() => onPin(item.id)}
-        aria-label={onCard ? 'On The Card' : 'Add To Card'}
-        title={onCard ? 'On The Card' : cardFull ? 'Every Square Is Pinned' : 'Add To Card'}
-      >
-        {onCard ? <Check strokeWidth={1.75} /> : <Plus strokeWidth={1.75} />}
-      </Button>
+      {/* On-card rows are marked by the accent bar, so "+" only appears where it can act.
+          The empty slot keeps every row's game menu in the same column. */}
+      {onCard ? (
+        <span className="size-7 shrink-0" aria-hidden />
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={BTN}
+          disabled={cardFull}
+          onClick={() => onPin(item.id)}
+          aria-label="Add To Card"
+          title={cardFull ? 'Every Square Is Pinned' : 'Add To Card'}
+        >
+          <Plus strokeWidth={1.75} />
+        </Button>
+      )}
     </li>
   );
 });

@@ -57,7 +57,8 @@ export function RowGameMenu({
           field
             // w-44, not the row's w-40: at 14px with a 16px glyph "Rocket League" needs the extra 16px to show whole.
             ? 'h-8 w-44 rounded-lg border-input bg-transparent px-2.5 text-sm dark:bg-input/30'
-            : 'h-7 w-40 rounded-md border-transparent px-2 text-[13px]',
+            // w-52 so "Modern Warfare 2019" shows whole — game names are the row's only label now.
+            : 'h-7 w-52 rounded-md border-transparent px-2 text-[13px]',
           field
             ? 'text-muted-foreground hover:bg-muted/50 hover:text-foreground active:bg-muted dark:hover:bg-input/50 dark:active:bg-input/70'
             : 'text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground active:bg-muted',

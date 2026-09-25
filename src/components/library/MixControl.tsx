@@ -47,7 +47,10 @@ export function MixControl({ lanes, games, counts, available, capped, slots, onC
     .filter((lane) => countOf(lane) > 0)
     .map((lane) => ({ lane, n: countOf(lane) }));
 
-  const cappedNotes = lanes
+  // A capped lane only matters when the other lanes can't make up the gap; with
+  // every square filled, "Only 7" is noise.
+  const filled = lanes.reduce((sum, lane) => sum + countOf(lane), 0);
+  const cappedNotes = filled >= slots ? [] : lanes
     .filter((lane) => capped.includes(lane))
     .map((lane) => `Only ${available.get(lane) ?? 0} ${nameOf(lane)} ${(available.get(lane) ?? 0) === 1 ? 'Item' : 'Items'}`);
 
