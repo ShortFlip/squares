@@ -37,7 +37,6 @@ export function MiniBoard({
   className,
 }: MiniBoardProps) {
   const total = boardSize * boardSize;
-  const centerIndex = Math.floor(total / 2);
   const gap = 2;
   // Tiles share the content box with (n - 1) gaps between them.
   const tile = (size - gap * (boardSize - 1)) / boardSize;
@@ -64,10 +63,9 @@ export function MiniBoard({
         }}
       >
         {Array.from({ length: total }, (_, gridIndex) => {
-          // Free space is positional, not stored per-card, so it is derived the
-          // same way BingoBoard derives it — a card that carries the flag wins.
-          const isFree =
-            card[gridIndex]?.isFreeSpace ?? (freeSpace && gridIndex === centerIndex);
+          // FREE is read off the card's flag, never the position: 3×3/4×4 place
+          // it at a random square. `freeSpace` only gates it (false = unsynced).
+          const isFree = freeSpace && card[gridIndex]?.isFreeSpace === true;
 
           return (
             <div

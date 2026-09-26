@@ -20,7 +20,7 @@ import { seededRng } from '@/lib/game/seed-rng';
 import { loadLibrary } from '@/lib/library/api';
 import { squareFrom } from '@/lib/library/card-draft';
 import { saveLastRoom, clearLastRoom } from '@/lib/utils/last-room';
-import { checkWin } from '@/lib/game/win-detection';
+import { checkWin, freeIndexOf } from '@/lib/game/win-detection';
 import { withRetry, RETRY_DELAYS_MS } from '@/lib/utils/retry';
 import { resolveRestoredCard, computeBingoTimeMs } from '@/lib/game/restore';
 import type { Json, Tables } from '@/lib/supabase/types';
@@ -356,12 +356,13 @@ export function RoomClient({ initialRoom }: RoomClientProps) {
 
   async function handleBingoClaim() {
     if (!player) return;
-    const { gameId: gid, myMarks, boardSize, freeSpace, winPatterns, winners: currentWinners } = useGameStore.getState();
+    const { gameId: gid, myCard, myMarks, boardSize, freeSpace, winPatterns, winners: currentWinners } = useGameStore.getState();
     if (!gid) return;
 
     if (currentWinners.some((w) => w.playerId === player.id)) return;
 
-    const pattern = checkWin(new Set(myMarks), boardSize, winPatterns, freeSpace);
+    // FREE's index is read off the card — it is not the centre on 3×3/4×4.
+    const pattern = checkWin(new Set(myMarks), boardSize, winPatterns, freeSpace ? freeIndexOf(myCard) : null);
     if (!pattern) {
       useGameStore.getState().setHasClaimed(false);
       return;

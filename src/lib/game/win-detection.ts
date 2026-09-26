@@ -1,4 +1,21 @@
 import type { WinPattern } from '@/types/game';
+import type { SquareItem } from '@/types/card';
+
+/**
+ * Where the FREE square sits on a card, or null when it has none.
+ *
+ * The card itself is the source of truth: 5×5 and larger keep FREE at the
+ * centre, but smaller boards place it at a seeded random square (see
+ * `generateCard`), so nothing downstream may assume `floor(N²/2)`. Old stored
+ * cards carry the flag at the centre and resolve exactly as before.
+ */
+export function freeIndexOf(
+  card: readonly (SquareItem | null | undefined)[] | null | undefined,
+): number | null {
+  if (!card) return null;
+  const index = card.findIndex((item) => item?.isFreeSpace === true);
+  return index === -1 ? null : index;
+}
 
 /**
  * Check all enabled win patterns against the player's marks.
@@ -7,19 +24,19 @@ import type { WinPattern } from '@/types/game';
  * @param marks       - set of marked grid indices (0 to boardSize²-1)
  * @param boardSize   - 3 through 6
  * @param patterns    - which win conditions are enabled for this room
- * @param freeSpace   - if true, the center square is always treated as marked
+ * @param freeIndex   - grid index of the FREE square (always treated as marked),
+ *                      or null for no free space. Read it off the card with
+ *                      `freeIndexOf` — it is not always the centre.
  */
 export function checkWin(
   marks: Set<number>,
   boardSize: number,
   patterns: WinPattern[],
-  freeSpace: boolean,
+  freeIndex: number | null,
 ): WinPattern | null {
-  // Build the effective mark set — include center auto-mark if freeSpace is on
+  // Build the effective mark set — FREE counts as marked wherever it landed
   const effective = new Set(marks);
-  if (freeSpace) {
-    effective.add(Math.floor((boardSize * boardSize) / 2));
-  }
+  if (freeIndex !== null) effective.add(freeIndex);
 
   for (const pattern of patterns) {
     if (matchesPattern(effective, boardSize, pattern)) return pattern;
@@ -89,7 +106,8 @@ export interface BestLine {
  * ("two away"), so that is what we compute and return.
  *
  * Free space counts as marked, exactly as `checkWin` treats it. Without that,
- * every line through the center would read one further away than it plays.
+ * every line through FREE would read one further away than it plays. The index
+ * comes from the card (`freeIndexOf`) because small boards place FREE at random.
  *
  * Ties break row → column → diagonal, lowest index first, so the label does
  * not flicker between two equally close lines as marks land.
@@ -97,12 +115,12 @@ export interface BestLine {
 export function bestLine(
   marks: Set<number>,
   boardSize: number,
-  freeSpace: boolean,
+  freeIndex: number | null,
 ): BestLine | null {
   if (!Number.isInteger(boardSize) || boardSize < 2) return null;
 
   const effective = new Set(marks);
-  if (freeSpace) effective.add(Math.floor((boardSize * boardSize) / 2));
+  if (freeIndex !== null) effective.add(freeIndex);
 
   const candidates: BestLine[] = [];
 

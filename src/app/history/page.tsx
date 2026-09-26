@@ -417,15 +417,13 @@ function RoundRow({ round, night, myId }: { round: Round; night: Night; myId: st
 
 /**
  * Mini read-only BingoBoard showing the player's card with their marks overlaid.
- * card_data from the DB already has FREE embedded at center (if free space was on),
- * so we filter it out and pass freeSpace=true for correct rendering.
+ * card_data from the DB already has FREE flagged at the square where it landed.
  */
 function CardSnapshot({ entry, night }: { entry: RoundPlayer; night: Night }) {
   const raw = entry.card ?? [];
-  const hasFreeSpace = raw.some((item) => item.isFreeSpace);
-
-  // Filter out the FREE sentinel so BingoBoard can insert it via its own logic
-  const items = hasFreeSpace ? raw.filter((item) => !item.isFreeSpace) : raw;
+  // card_data is the full grid with FREE flagged where it landed (centre on
+  // 5×5+, anywhere on 3×3/4×4), so BingoBoard gets it as-is.
+  const items = raw;
   const markedIndices = new Set(entry.markIndices);
   // The same key the game screen shows above the hero board: only the games
   // with a square on this card. A legacy card has none, and keeps the plain label.
@@ -450,7 +448,6 @@ function CardSnapshot({ entry, night }: { entry: RoundPlayer; night: Night }) {
         <BingoBoard
           items={items}
           boardSize={night.boardSize}
-          freeSpace={hasFreeSpace}
           styles={night.styles}
           markedIndices={markedIndices}
           calledIndices={markedIndices}

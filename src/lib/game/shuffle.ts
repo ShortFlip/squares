@@ -27,7 +27,8 @@ export function fisherYates<T>(arr: T[], rng: () => number): T[] {
  * @param boardSize   - 3 through 6
  * @param shuffleMode - 'full' = Fisher-Yates on whole pool;
  *                      'column' = shuffle within boardSize partitions
- * @param freeSpace   - if true, replace center item with FREE sentinel
+ * @param freeSpace   - if true, one square is the FREE sentinel: the centre on
+ *                      5×5 and up, a seeded random square on smaller boards
  */
 export function generateCard(
   items: SquareItem[],
@@ -39,7 +40,14 @@ export function generateCard(
 ): SquareItem[] {
   const rng = seededRng(`${seed}:${playerId}`);
   const total = boardSize * boardSize;
-  const centerIndex = Math.floor(total / 2);
+  // Where FREE goes. 5×5+ keeps the classic centre. On 3×3/4×4 a fixed spot
+  // put every player's FREE in the same place (and on 4×4 the "centre" is not
+  // even central), so it roams: drawn from the same per-player rng, so the card
+  // stays reproducible from (templateId, gameSeed, playerId) and players
+  // generally differ. The draw happens ONLY on small boards — an extra rng()
+  // call on 5×5 would shift every later draw and change existing cards.
+  const freeIndex =
+    freeSpace && boardSize < 5 ? Math.floor(rng() * total) : Math.floor(total / 2);
 
   // Tag each item with its original pool index BEFORE shuffling.
   // This lets win verification check whether a marked square's item was actually called.
@@ -57,11 +65,11 @@ export function generateCard(
     card = fisherYates(pool, rng).slice(0, freeSpace ? total - 1 : total);
 
     if (freeSpace) {
-      // card has (total-1) items — splice FREE into the center position
+      // card has (total-1) items — splice FREE into its chosen position
       card = [
-        ...card.slice(0, centerIndex),
+        ...card.slice(0, freeIndex),
         { text: 'FREE', isFreeSpace: true },
-        ...card.slice(centerIndex),
+        ...card.slice(freeIndex),
       ];
     }
   } else {
@@ -70,12 +78,13 @@ export function generateCard(
     // good for themed boards (e.g. column 1 = movies, column 2 = sports).
     //
     // Partitions are sized by NEED, not a uniform ceil split: each column needs
-    // boardSize items, except the center column when freeSpace is on (FREE
-    // occupies one of its rows). A uniform split of an (N²-1)-item pool leaves
+    // boardSize items, except FREE's column when freeSpace is on (FREE
+    // occupies one of its rows). That column follows freeIndex, which is the
+    // centre only on 5×5 and up. A uniform split of an (N²-1)-item pool leaves
     // the last column one short, which used to render a blank playable square.
-    const centerCol = centerIndex % boardSize;
+    const freeCol = freeIndex % boardSize;
     const needs = Array.from({ length: boardSize }, (_, col) =>
-      boardSize - (freeSpace && col === centerCol ? 1 : 0),
+      boardSize - (freeSpace && col === freeCol ? 1 : 0),
     );
     const totalNeed = needs.reduce((a, b) => a + b, 0);
 
@@ -96,7 +105,7 @@ export function generateCard(
     const pointers = Array(boardSize).fill(0);
     for (let row = 0; row < boardSize; row++) {
       for (let col = 0; col < boardSize; col++) {
-        if (freeSpace && row * boardSize + col === centerIndex) {
+        if (freeSpace && row * boardSize + col === freeIndex) {
           card.push({ text: 'FREE', isFreeSpace: true });
         } else {
           // Blank fallback only happens if the template genuinely has too few items

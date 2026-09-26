@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { checkWin, bestLine, bestLineLabel } from '../win-detection';
+import { checkWin, bestLine, bestLineLabel, freeIndexOf } from '../win-detection';
+import { generateCard } from '../shuffle';
 import type { WinPattern } from '@/types/game';
 
 const ALL: WinPattern[] = ['row', 'column', 'diagonal', 'four_corners', 'blackout'];
@@ -8,115 +9,151 @@ const col = (c: number, size = 5) => Array.from({ length: size }, (_, r) => r * 
 
 describe('checkWin', () => {
   it('detects a full row', () => {
-    expect(checkWin(new Set(row(1)), 5, ALL, false)).toBe('row');
+    expect(checkWin(new Set(row(1)), 5, ALL, null)).toBe('row');
   });
 
   it('detects a full column', () => {
-    expect(checkWin(new Set(col(3)), 5, ALL, false)).toBe('column');
+    expect(checkWin(new Set(col(3)), 5, ALL, null)).toBe('column');
   });
 
   it('detects the top-left to bottom-right diagonal', () => {
     const d = [0, 6, 12, 18, 24];
-    expect(checkWin(new Set(d), 5, ['diagonal'], false)).toBe('diagonal');
+    expect(checkWin(new Set(d), 5, ['diagonal'], null)).toBe('diagonal');
   });
 
   it('detects the top-right to bottom-left diagonal', () => {
     const d = [4, 8, 12, 16, 20];
-    expect(checkWin(new Set(d), 5, ['diagonal'], false)).toBe('diagonal');
+    expect(checkWin(new Set(d), 5, ['diagonal'], null)).toBe('diagonal');
   });
 
   it('detects four corners', () => {
-    expect(checkWin(new Set([0, 4, 20, 24]), 5, ['four_corners'], false)).toBe('four_corners');
+    expect(checkWin(new Set([0, 4, 20, 24]), 5, ['four_corners'], null)).toBe('four_corners');
   });
 
   it('detects a blackout', () => {
     const all = Array.from({ length: 25 }, (_, i) => i);
-    expect(checkWin(new Set(all), 5, ['blackout'], false)).toBe('blackout');
+    expect(checkWin(new Set(all), 5, ['blackout'], null)).toBe('blackout');
   });
 
   it('counts the free space as marked', () => {
     // Middle row minus the center square: only a win when free space is on.
     const partial = row(2).filter((i) => i !== 12);
-    expect(checkWin(new Set(partial), 5, ['row'], false)).toBeNull();
-    expect(checkWin(new Set(partial), 5, ['row'], true)).toBe('row');
+    expect(checkWin(new Set(partial), 5, ['row'], null)).toBeNull();
+    expect(checkWin(new Set(partial), 5, ['row'], 12)).toBe('row');
   });
 
   it('returns null when nothing matches', () => {
-    expect(checkWin(new Set([0, 1, 7, 19]), 5, ALL, false)).toBeNull();
+    expect(checkWin(new Set([0, 1, 7, 19]), 5, ALL, null)).toBeNull();
   });
 
   it('only reports patterns that are enabled for the room', () => {
-    expect(checkWin(new Set(col(0)), 5, ['row'], false)).toBeNull();
+    expect(checkWin(new Set(col(0)), 5, ['row'], null)).toBeNull();
   });
 });
 
 describe('bestLine', () => {
   it('returns null for an invalid board size', () => {
-    expect(bestLine(new Set(), 0, false)).toBeNull();
-    expect(bestLine(new Set(), 1, false)).toBeNull();
-    expect(bestLine(new Set(), 5.5, false)).toBeNull();
+    expect(bestLine(new Set(), 0, null)).toBeNull();
+    expect(bestLine(new Set(), 1, null)).toBeNull();
+    expect(bestLine(new Set(), 5.5, null)).toBeNull();
   });
 
   it('finds the line with the fewest unmarked cells', () => {
     // Row 2 has four of five marks; nothing else has more than one.
-    const line = bestLine(new Set([10, 11, 13, 14]), 5, false);
+    const line = bestLine(new Set([10, 11, 13, 14]), 5, null);
     expect(line).toMatchObject({ kind: 'row', index: 2, remaining: 1 });
     expect(line?.cells).toEqual([10, 11, 12, 13, 14]);
   });
 
   it('counts the free space as marked', () => {
     // Same four marks, but the free space fills the gap in row 2.
-    const line = bestLine(new Set([10, 11, 13, 14]), 5, true);
+    const line = bestLine(new Set([10, 11, 13, 14]), 5, 12);
     expect(line?.remaining).toBe(0);
   });
 
   it('breaks ties row before column before diagonal, lowest index first', () => {
     // Cell 0 sits on row 0, column 0 and the top-left diagonal — all one mark.
-    const line = bestLine(new Set([0]), 5, false);
+    const line = bestLine(new Set([0]), 5, null);
     expect(line).toMatchObject({ kind: 'row', index: 0 });
 
     // Columns 1 and 3 are both three marks deep; the lower index wins.
-    const cols = bestLine(new Set([1, 6, 11, 3, 8, 13]), 5, false);
+    const cols = bestLine(new Set([1, 6, 11, 3, 8, 13]), 5, null);
     expect(cols).toMatchObject({ kind: 'column', index: 1 });
   });
 
   it('reports the diagonals with index 0 (TL-BR) and 1 (TR-BL)', () => {
-    const trbl = bestLine(new Set([4, 8, 16, 20]), 5, false);
+    const trbl = bestLine(new Set([4, 8, 16, 20]), 5, null);
     expect(trbl).toMatchObject({ kind: 'diagonal', index: 1, remaining: 1 });
   });
 });
 
 describe('bestLineLabel', () => {
   it('spells out how far away a line is', () => {
-    expect(bestLineLabel(bestLine(new Set([10, 11, 13, 14]), 5, false)))
+    expect(bestLineLabel(bestLine(new Set([10, 11, 13, 14]), 5, null)))
       .toBe('Row 3 — one away');
-    expect(bestLineLabel(bestLine(new Set([1, 6, 11]), 5, false)))
+    expect(bestLineLabel(bestLine(new Set([1, 6, 11]), 5, null)))
       .toBe('Column 2 — two away');
-    expect(bestLineLabel(bestLine(new Set([0, 6]), 5, false)))
+    expect(bestLineLabel(bestLine(new Set([0, 6]), 5, null)))
       .toBe('Diagonal — three away');
   });
 
   it('stays quiet until a line is actually close', () => {
     expect(bestLineLabel(null)).toBe('No line yet');
     // Nothing but the free space: every line is four away on a 5x5.
-    expect(bestLineLabel(bestLine(new Set(), 5, true))).toBe('No line yet');
-    expect(bestLineLabel(bestLine(new Set([0]), 5, false))).toBe('No line yet');
+    expect(bestLineLabel(bestLine(new Set(), 5, 12))).toBe('No line yet');
+    expect(bestLineLabel(bestLine(new Set([0]), 5, null))).toBe('No line yet');
   });
 
   it('uses digits past five', () => {
     // 8x8 board, two marks on row 0: six away, past the word list.
-    expect(bestLineLabel(bestLine(new Set([0, 1]), 8, false))).toBe('Row 1 — 6 away');
+    expect(bestLineLabel(bestLine(new Set([0, 1]), 8, null))).toBe('Row 1 — 6 away');
     // One mark is seven away on an 8x8 — boardSize - 1, so still not news.
-    expect(bestLineLabel(bestLine(new Set([0]), 8, false))).toBe('No line yet');
+    expect(bestLineLabel(bestLine(new Set([0]), 8, null))).toBe('No line yet');
   });
 
   it('announces a win with the completed line', () => {
-    const line = bestLine(new Set([1, 6, 11, 16, 21]), 5, false);
+    const line = bestLine(new Set([1, 6, 11, 16, 21]), 5, null);
     expect(bestLineLabel(line, { pattern: 'column' })).toBe('Bingo — column 2');
     expect(bestLineLabel(line)).toBe('Bingo — column 2');
   });
 
   it('falls back to the broadcast pattern when the marks have not arrived', () => {
     expect(bestLineLabel(null, { pattern: 'four_corners' })).toBe('Bingo — four corners');
+  });
+});
+
+// ── Off-centre FREE (3×3 / 4×4 roam it) ───────────────────────────────────
+describe('off-centre free space', () => {
+  it('freeIndexOf reads the flag, not the position', () => {
+    const card = Array.from({ length: 9 }, (_, i) => ({ text: `s${i}`, isFreeSpace: i === 2 }));
+    expect(freeIndexOf(card)).toBe(2);
+    expect(freeIndexOf(card.map((c) => ({ ...c, isFreeSpace: false })))).toBeNull();
+    expect(freeIndexOf(undefined)).toBeNull();
+  });
+
+  it('a line through an off-centre FREE wins in checkWin', () => {
+    // 3×3, FREE at index 2 (top-right): marks 0 and 1 complete the top row.
+    expect(checkWin(new Set([0, 1]), 3, ['row'], 2)).toBe('row');
+    // The old centre assumption would not have counted index 2.
+    expect(checkWin(new Set([0, 1]), 3, ['row'], 4)).toBeNull();
+    // 4×4, FREE at 15: column 3 via 3, 7, 11.
+    expect(checkWin(new Set([3, 7, 11]), 4, ['column'], 15)).toBe('column');
+  });
+
+  it('bestLine counts an off-centre FREE as marked', () => {
+    const line = bestLine(new Set([0]), 3, 2);
+    expect(line).toMatchObject({ kind: 'row', index: 0, remaining: 1 });
+    expect(bestLineLabel(line)).toBe('Row 1 — one away');
+  });
+
+  it('works end to end with a generated small card whose FREE is off-centre', () => {
+    const pool = Array.from({ length: 20 }, (_, i) => ({ text: `Item ${i + 1}` }));
+    const card = Array.from({ length: 40 }, (_, i) => generateCard(pool, `s${i}`, 'p', 3, 'full', true))
+      .find((c) => freeIndexOf(c) !== 4);
+    expect(card).toBeDefined();
+    const free = freeIndexOf(card)!;
+    const r = Math.floor(free / 3);
+    const rest = [0, 1, 2].map((c) => r * 3 + c).filter((i) => i !== free);
+    expect(checkWin(new Set(rest), 3, ['row'], free)).toBe('row');
   });
 });

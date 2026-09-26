@@ -132,7 +132,7 @@ describe('swapGameSquares', () => {
     });
     // Top row: 0 and 2 were swapped, 1 was marked before. Marking the new ones wins.
     expect(result.card[0].gameTagId).toBe(MW);
-    expect(checkWin(new Set([1]), 3, ['row'], true)).toBeNull();
-    expect(checkWin(new Set([0, 1, 2]), 3, ['row'], true)).toBe('row');
+    expect(checkWin(new Set([1]), 3, ['row'], 4)).toBeNull();
+    expect(checkWin(new Set([0, 1, 2]), 3, ['row'], 4)).toBe('row');
   });
 });
