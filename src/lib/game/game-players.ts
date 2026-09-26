@@ -19,6 +19,12 @@ import type { WinPattern } from '@/types/game';
  * Called on mount, after the local upsert that follows `game_started`, and
  * every time the channel regains SUBSCRIBED.
  *
+ * `includeMyCard` also replaces my own card with my row's card_data. Only the
+ * mid-round game swap rewrites a card after the round starts, so only its
+ * broadcast and the reconnect replay (which may have missed that broadcast)
+ * ask for it; every other caller already built my card from the same row.
+ * Marks are untouched: they are grid indexes and the swap keeps positions.
+ *
  * Returns false when the read failed, so a caller that must not act on a
  * partial picture (the rejoin path, before it restores marks) can retry.
  */
@@ -26,7 +32,7 @@ export async function loadGamePlayers(
   supabase: SupabaseClient<Database>,
   gameId: string,
   selfPlayerId: string,
-  { quiet = false }: { quiet?: boolean } = {},
+  { quiet = false, includeMyCard = false }: { quiet?: boolean; includeMyCard?: boolean } = {},
 ): Promise<boolean> {
   // The FK hint disambiguates the join: game_players references players twice
   // is not the case today, but naming the constraint keeps this stable if it
@@ -92,5 +98,12 @@ export async function loadGamePlayers(
     });
 
   store.setOthers(others);
+
+  if (includeMyCard) {
+    const own = rows.find((row) => row.player_id === selfPlayerId);
+    const ownCard = own?.card_data as OtherPlayer['card'] | null | undefined;
+    // An empty or missing row is "not written yet", never "my card is blank".
+    if (Array.isArray(ownCard) && ownCard.length > 0) store.setMyCard(ownCard);
+  }
   return true;
 }
