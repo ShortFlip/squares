@@ -16,7 +16,6 @@ const GRID_COLS: Record<number, string> = {
 interface BingoBoardProps {
   items: SquareItem[];
   boardSize: number;
-  freeSpace: boolean;
   styles?: CardStyles;
   className?: string;
   // game props
@@ -37,7 +36,6 @@ interface BingoBoardProps {
 export function BingoBoard({
   items,
   boardSize,
-  freeSpace,
   styles,
   className,
   markedIndices,
@@ -48,8 +46,6 @@ export function BingoBoard({
   laneIndices,
 }: BingoBoardProps) {
   const total = boardSize * boardSize;
-  // The center cell is the FREE SPACE (only on square grids, which we always have)
-  const centerIndex = Math.floor(total / 2);
 
   return (
     // @container enables cqw units inside BingoSquare for fluid font sizing
@@ -63,20 +59,14 @@ export function BingoBoard({
       )}
     >
       {Array.from({ length: total }, (_, gridIndex) => {
-        // Two ways a cell can be the free space: positionally (History, which
-        // passes a plain item list) or because the generated card
-        // already carries the flag (the game, whose card includes the item).
-        const isFreeSpace =
-          (freeSpace && gridIndex === centerIndex) || items[gridIndex]?.isFreeSpace === true;
-
-        // Map grid position → items array index, skipping center when freeSpace is on
-        // e.g. 5x5 with freeSpace: grid[0-11]→items[0-11], grid[12]=FREE, grid[13-24]→items[12-23]
-        const itemIndex =
-          freeSpace && gridIndex > centerIndex ? gridIndex - 1 : gridIndex;
+        // `items` is always a full generated card with FREE flagged in place.
+        // FREE is wherever that flag is — 3×3/4×4 put it at a random square,
+        // so the old positional centre insert would draw it in the wrong spot.
+        const isFreeSpace = items[gridIndex]?.isFreeSpace === true;
 
         const item = isFreeSpace
           ? { text: 'FREE', isFreeSpace: true }
-          : (items[itemIndex] ?? { text: '' });
+          : (items[gridIndex] ?? { text: '' });
 
         return (
           // Each cell is its own @container so cqw units inside BingoSquare

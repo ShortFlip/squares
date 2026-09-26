@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useGameStore } from '@/stores/gameStore';
-import { checkWin } from '@/lib/game/win-detection';
+import { checkWin, freeIndexOf } from '@/lib/game/win-detection';
 
 /**
  * Derives frequently-needed computed values from the raw game store.
@@ -49,8 +49,9 @@ export function useGameState() {
 
   // Client-side win check — used to show the BINGO! button
   const currentWin = useMemo(
-    () => checkWin(marksSet, boardSize, winPatterns, freeSpace),
-    [marksSet, boardSize, winPatterns, freeSpace],
+    // FREE's position comes from the card: small boards place it at random.
+    () => checkWin(marksSet, boardSize, winPatterns, freeSpace ? freeIndexOf(myCard) : null),
+    [marksSet, boardSize, winPatterns, freeSpace, myCard],
   );
 
   return {

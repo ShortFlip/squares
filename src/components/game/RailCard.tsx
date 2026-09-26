@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { MiniBoard } from '@/components/board/MiniBoard';
 import { PILL } from '@/lib/pill';
-import { bestLine, bestLineLabel } from '@/lib/game/win-detection';
+import { bestLine, bestLineLabel, freeIndexOf } from '@/lib/game/win-detection';
 import type { SquareItem } from '@/types/card';
 
 interface RailCardProps {
@@ -57,8 +57,9 @@ export function RailCard({
   // Drawing a line or a lit center on a board we have not read would be
   // inventing information about someone else's game.
   const line = useMemo(
-    () => (synced ? bestLine(new Set(marks), boardSize, freeSpace) : null),
-    [synced, marks, boardSize, freeSpace],
+    // FREE's index comes from this player's own card; on 3×3/4×4 it differs per player.
+    () => (synced ? bestLine(new Set(marks), boardSize, freeSpace ? freeIndexOf(card) : null) : null),
+    [synced, marks, boardSize, freeSpace, card],
   );
 
   // A winner's status line states the fact, not the distance.

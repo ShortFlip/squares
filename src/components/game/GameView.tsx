@@ -17,7 +17,7 @@ import { useLegendNamesFit } from '@/hooks/useLegendNamesFit';
 import { useDevState } from '@/lib/dev-state';
 import { cardLegend, squareGame } from '@/lib/library/legend';
 import { gamesOnCards } from '@/lib/game/swap-games';
-import { bestLine, bestLineLabel } from '@/lib/game/win-detection';
+import { bestLine, bestLineLabel, freeIndexOf } from '@/lib/game/win-detection';
 import { copyLink } from '@/lib/utils/copy-link';
 import { playerColor, getInitials } from '@/lib/utils/player-color';
 import { playMark, playRoundStart, playBingo, isMuted, toggleMute } from '@/lib/sound';
@@ -147,8 +147,9 @@ export function GameView({
 
   // My best line drives both the header note and the hot lane on the board.
   const myLine = useMemo(
-    () => bestLine(new Set(marks), size, free),
-    [marks, size, free],
+    // FREE's index is read off my card, not assumed central — small boards roam it.
+    () => bestLine(new Set(marks), size, free ? freeIndexOf(card) : null),
+    [marks, size, free, card],
   );
   const myLineLabel = bestLineLabel(myLine);
   const myOneAway = myLine !== null && myLine.remaining === 1;
@@ -209,18 +210,19 @@ export function GameView({
     const first = winners[0];
     if (!first) return '';
     const isMe = first.playerId === currentPlayerId;
-    const winnerMarks = isMe
-      ? marks
-      : rail.find((o) => o.playerId === first.playerId)?.marks;
+    const winnerEntry = isMe ? undefined : rail.find((o) => o.playerId === first.playerId);
+    const winnerMarks = isMe ? marks : winnerEntry?.marks;
+    // Each player's FREE can sit somewhere different, so read the winner's card.
+    const winnerCard = isMe ? card : winnerEntry?.card;
     if (winnerMarks && winnerMarks.length > 0) {
-      const line = bestLine(new Set(winnerMarks), size, free);
+      const line = bestLine(new Set(winnerMarks), size, free ? freeIndexOf(winnerCard) : null);
       if (line && line.remaining === 0) {
         return line.kind === 'diagonal' ? 'Diagonal'
           : `${line.kind === 'row' ? 'Row' : 'Column'} ${line.index + 1}`;
       }
     }
     return PATTERN_NAMES[first.pattern] ?? 'Bingo';
-  }, [winners, currentPlayerId, marks, rail, size, free]);
+  }, [winners, currentPlayerId, marks, card, rail, size, free]);
 
   // While the banner is up everything else gives ground: the grid, the panel,
   // the rail gap and the miniatures. The grid is also held inside whatever
@@ -453,7 +455,6 @@ export function GameView({
             <BingoBoard
               items={card}
               boardSize={size}
-              freeSpace={false}
               styles={styles}
               markedIndices={markedSet}
               // Traditional: called-but-unmarked squares glow so players can
