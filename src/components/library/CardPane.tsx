@@ -17,11 +17,13 @@ import { slotsFor } from '@/lib/game/card-builder';
 import { CARD_PRESETS } from '@/lib/card-styles';
 import { sameName } from '@/lib/library/api';
 import { countsInSet, laneKeysFor } from '@/lib/library/card-draft';
+import { cardHeat } from '@/lib/library/heat';
 import { hostCardFor, type HostCard } from '@/lib/library/hosting';
 import { notify } from '@/lib/library/notify';
 import { cn } from '@/lib/utils';
 import { laneCounts, mixSlots, poolFor, useLibraryStore } from '@/stores/libraryStore';
 import { BTN, BTN_PRIMARY, GameGlyph, HOVER_CONTROL } from './GameGlyph';
+import { heatColor } from './HeatMeter';
 import { MixControl } from './MixControl';
 import { ConfirmDialog } from './TagDialogs';
 import { CreateRoomDialog } from '@/components/game/CreateRoomDialog';
@@ -59,6 +61,9 @@ export function CardPane() {
   const lanes = useMemo(() => laneKeysFor(pool, tags), [pool, tags]);
   const available = useMemo(() => laneCounts(items, draft), [items, draft]);
   const counts = useMemo(() => countsInSet(draft.set), [draft.set]);
+  const heat = useLibraryStore((s) => s.heat);
+  // How playable the drawn set is, judged by past rounds. Recomputed per draw.
+  const setHeat = useMemo(() => cardHeat(draft.set, items, heat), [draft.set, items, heat]);
 
   const slots = slotsFor(draft.boardSize, draft.freeSpace);
   const filled = draft.set.length;
@@ -242,6 +247,21 @@ export function CardPane() {
             <>
               {' · '}
               <span className="font-mono text-foreground">{draft.pinnedIds.length}</span> Pinned
+            </>
+          )}
+          {setHeat.rate !== null && (
+            <>
+              {' · '}
+              <span title="Average Hit Rate Of This Card's Items In Past Rounds" data-testid="card-heat">
+                Card Heat{' '}
+                <span className="font-mono font-bold" style={{ color: heatColor(setHeat.rate) }}>
+                  {Math.round(setHeat.rate * 100)}%
+                </span>
+                {/* Say how much of the card the number stands on, so a few hot items cannot pass for the whole card. */}
+                {setHeat.withData < setHeat.total && (
+                  <> (<span className="font-mono text-foreground">{setHeat.withData}</span> of <span className="font-mono text-foreground">{setHeat.total}</span>)</>
+                )}
+              </span>
             </>
           )}
         </p>
