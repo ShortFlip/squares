@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeftRight, ChevronDown, Loader2, Pin, Plus, Shuffle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +65,19 @@ export function CardPane() {
   const short = filled < slots;
   const nameBlank = draft.name.trim().length === 0;
   const pinned = new Set(draft.pinnedIds);
+
+  // "How does what I pick on the left get over here?" - a newly pinned item
+  // lights up and scrolls into view, so the + on the left visibly lands.
+  // Keyed per pin, not per set change, so Reshuffle doesn't flash everything.
+  const [flash, setFlash] = useState<{ id: string; n: number } | null>(null);
+  const prevPins = useRef(draft.pinnedIds);
+  useEffect(() => {
+    const added = draft.pinnedIds.find((id) => !prevPins.current.includes(id));
+    prevPins.current = draft.pinnedIds;
+    if (!added) return;
+    setFlash((f) => ({ id: added, n: (f?.n ?? 0) + 1 }));
+    document.querySelector(`[data-library-id="${added}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [draft.pinnedIds]);
 
   function laneName(gameTagId: string | null): string {
     return gameTagId ? gameById.get(gameTagId)?.name ?? 'Unknown Game' : 'No Game';
@@ -238,6 +251,12 @@ export function CardPane() {
         </Button>
       </div>
 
+      {draft.set.length > 0 && (
+        <p className="px-4 pb-2.5 text-[13px] text-muted-foreground" data-testid="card-hint">
+          The Mix Fills The Card. Press <Plus strokeWidth={1.75} className="inline size-3.5 align-[-2px]" /> On An Item To Pin It In; Pinned Squares Stay Through Reshuffle.
+        </p>
+      )}
+
       <ul className="min-h-0 flex-1 overflow-y-auto border-t" aria-label="Card Items" data-testid="card-set">
         {draft.set.map((square, index) => (
           <SetRow
@@ -248,6 +267,7 @@ export function CardPane() {
             onTogglePin={() => square.libraryItemId && store().togglePin(square.libraryItemId)}
             onSwap={() => onSwap(index)}
             onRemove={() => store().removeSquare(index)}
+            flash={flash && flash.id === square.libraryItemId ? flash.n : 0}
           />
         ))}
         {draft.set.length === 0 && (
@@ -301,6 +321,7 @@ function SetRow({
   onTogglePin,
   onSwap,
   onRemove,
+  flash = 0,
 }: {
   square: SquareItem;
   game: Tag | null;
@@ -308,6 +329,8 @@ function SetRow({
   onTogglePin: () => void;
   onSwap: () => void;
   onRemove: () => void;
+  /** Non-zero right after this item is pinned; a new number replays the fade. */
+  flash?: number;
 }) {
   // A saved card's item the library no longer has: it can be removed or
   // swapped, but not pinned (a pin is a library id).
@@ -315,12 +338,13 @@ function SetRow({
   return (
     <li
       className={cn(
-        'flex h-10 items-center gap-2.5 border-b border-border/60 pr-2 pl-4 transition-colors duration-150 hover:bg-muted/40',
+        'relative isolate flex h-10 items-center gap-2.5 border-b border-border/60 pr-2 pl-4 transition-colors duration-150 hover:bg-muted/40',
         pinned && 'bg-primary/[0.06]',
       )}
       data-pinned={pinned || undefined}
       data-library-id={square.libraryItemId}
     >
+      {flash > 0 && <span key={flash} aria-hidden className="item-flash pointer-events-none absolute inset-0 -z-10" />}
       <GameGlyph game={game} />
       <span className="min-w-0 flex-1 truncate text-sm" title={square.text}>
         {square.text}
