@@ -276,6 +276,15 @@ export function useRealtimeRoom(
 
         // Host ended the game night — rooms.status is now 'finished' in the DB,
         // so clients re-render the server component to reach the GameOver screen.
+        // The host swapped one game's unmarked squares for another's on every
+        // card. The new cards are already in game_players.card_data, so this
+        // just rereads them — mine and everyone else's.
+        .on('broadcast', { event: 'cards_swapped' }, async ({ payload }: { payload: { gameId?: string } }) => {
+          const { gameId } = useGameStore.getState();
+          if (!gameId || (payload.gameId && payload.gameId !== gameId)) return;
+          await loadGamePlayers(supabase, gameId, self.id, { includeMyCard: true });
+        })
+
         .on('broadcast', { event: 'room_closed' }, () => {
           onRoomClosedRef.current?.();
         })
@@ -365,7 +374,9 @@ export function useRealtimeRoom(
               onRoundChangedRef.current?.();
               return;
             }
-            await loadGamePlayers(supabase, gameId, self.id);
+            // includeMyCard: a cards_swapped broadcast sent while we were
+            // down only lives in card_data now.
+            await loadGamePlayers(supabase, gameId, self.id, { includeMyCard: true });
             return;
           }
 

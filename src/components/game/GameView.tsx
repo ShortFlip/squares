@@ -15,7 +15,8 @@ import { useGameState } from '@/hooks/useGameState';
 import { usePlayer } from '@/hooks/usePlayer';
 import { useLegendNamesFit } from '@/hooks/useLegendNamesFit';
 import { useDevState } from '@/lib/dev-state';
-import { cardLegend } from '@/lib/library/legend';
+import { cardLegend, squareGame } from '@/lib/library/legend';
+import { gamesOnCards } from '@/lib/game/swap-games';
 import { bestLine, bestLineLabel } from '@/lib/game/win-detection';
 import { copyLink } from '@/lib/utils/copy-link';
 import { playerColor, getInitials } from '@/lib/utils/player-color';
@@ -49,6 +50,7 @@ interface GameViewProps {
   onBingoClaim: () => Promise<void>;
   onNewRound: () => Promise<void>;
   onEndGame: () => Promise<void>;
+  onSwapGames: (dropGameTagId: string, targetGameTagId: string) => Promise<void>;
   onCallNext: (callsMade: number) => Promise<void>;
 }
 
@@ -61,6 +63,7 @@ export function GameView({
   onBingoClaim,
   onNewRound,
   onEndGame,
+  onSwapGames,
   onCallNext,
 }: GameViewProps) {
   const { player } = usePlayer();
@@ -228,6 +231,18 @@ export function GameView({
   // The legend names only the games on my board. A legacy card has no legend,
   // so this is empty and the name row stays exactly as it always was.
   const legendGames = useMemo(() => cardLegend(styles.legend, card), [styles.legend, card]);
+
+  // Games across EVERY card in the round, not just mine: the host's own board
+  // may already be free of Rocket League while a friend's still has some.
+  // Named from the legend; a game the legend cannot name is left out so the
+  // button never reads "Swap undefined".
+  const swapGames = useMemo(() => {
+    const ids = gamesOnCards([card, ...Object.values(others).map((o) => o.card)]);
+    return ids.flatMap((gameTagId) => {
+      const game = squareGame(styles.legend, gameTagId);
+      return game ? [{ gameTagId, name: game.name }] : [];
+    });
+  }, [card, others, styles.legend]);
   // A callback ref, not useRef: the row does not exist while the skeleton
   // shows, and the fit check has to start when it mounts.
   const [nameRow, setNameRow] = useState<HTMLDivElement | null>(null);
@@ -289,6 +304,8 @@ export function GameView({
               <HostControls
                 onNewRound={() => { void onNewRound(); }}
                 onEndGame={() => { void onEndGame(); }}
+                swapGames={swapGames}
+                onSwapGames={onSwapGames}
               />
             </div>
           )}
