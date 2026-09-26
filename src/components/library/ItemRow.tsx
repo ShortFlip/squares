@@ -7,6 +7,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { BTN, GameGlyph, HOVER_CONTROL } from './GameGlyph';
 import { RowGameMenu } from './GameMenu';
+import { HeatMeter } from './HeatMeter';
+import type { ItemHeat } from '@/lib/library/heat';
 import type { LibraryItem, Tag } from '@/types/library';
 
 /** Extra-tag chips shown on a row before collapsing to "+N". */
@@ -14,6 +16,8 @@ const MAX_ROW_TAGS = 2;
 
 interface ItemRowProps {
   item: LibraryItem;
+  /** Marks and appearances from past rounds; undefined when it never appeared. */
+  heat: ItemHeat | undefined;
   game: Tag | null;
   games: Tag[];
   extraTags: Tag[];
@@ -39,6 +43,7 @@ interface ItemRowProps {
  */
 export const ItemRow = memo(function ItemRow({
   item,
+  heat,
   game,
   games,
   extraTags,
@@ -158,6 +163,8 @@ export const ItemRow = memo(function ItemRow({
           )}
         </div>
       )}
+
+      <HeatMeter heat={heat} />
 
       <RowGameMenu games={games} value={item.gameTagId} onChange={(id) => onSetGame(item.id, id)} />
 

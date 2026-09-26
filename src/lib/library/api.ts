@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase/client';
 import { isGameColorKey, isGameIconKey } from '@/lib/game-colors';
 import { planImport, textKey } from '@/lib/library/card-draft';
+import type { HeatRow } from '@/lib/library/heat';
+import { isScoredRound } from '@/lib/game/stats';
 import { hostCardName, type HostDraft } from '@/lib/library/hosting';
 import type { Json } from '@/lib/supabase/types';
 import type { CardStyles, CardTemplate, SquareItem } from '@/types/card';
@@ -287,6 +289,56 @@ export async function createTag(
   if (error && isUnique(error)) fail('createTag', `You already have a tag called “${name}”.`, error);
   if (error || !data) fail('createTag', input.kind === 'game' ? 'Could not create that game.' : 'Could not create that tag.', error);
   return toTag(data);
+}
+
+/**
+ * Every counted card from every round in the owner's rooms, for item heat.
+ * Scoped like /leaderboard (Decision B): step one finds the rooms he has
+ * played in, step two reads every player's row from every round of those
+ * rooms. Won rounds count in full. Rounds left "active" (the host closed the
+ * tab instead of ending the night, which is most of the real history) count
+ * per card, only once that player marked something, so an untouched
+ * card can't drag a rate down. Cancelled rounds never count.
+ */
+export async function loadHeatRows(ownerId: string): Promise<HeatRow[]> {
+  const supabase = createClient();
+  try {
+    const { data: mine, error: mineError } = await supabase
+      .from('game_players')
+      .select('games!game_players_game_id_fkey (room_id)')
+      .eq('player_id', ownerId);
+    if (mineError) throw mineError;
+
+    const roomIds = Array.from(new Set(
+      (mine ?? [])
+        .map((row) => (row.games as { room_id: string } | null)?.room_id)
+        .filter((id): id is string => !!id),
+    ));
+    if (roomIds.length === 0) return [];
+
+    const rows: HeatRow[] = [];
+    for (const ids of chunks(roomIds)) {
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from('game_players')
+          .select('id, card_data, marks, games!inner ( room_id, status )')
+          .in('games.room_id', ids)
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        for (const row of data ?? []) {
+          const game = row.games as unknown as { status: string } | null;
+          const played = Array.isArray(row.marks) && row.marks.length > 0;
+          if (!isScoredRound(game?.status) && !(game?.status === 'active' && played)) continue;
+          rows.push({ cardData: row.card_data, marks: row.marks });
+        }
+        if (!data || data.length < PAGE) break;
+      }
+    }
+    return rows;
+  } catch (error) {
+    fail('loadHeatRows', 'Could not load item heat. The library still works.', error);
+  }
 }
 
 /** The owner's saved cards (saved = true), newest first. */

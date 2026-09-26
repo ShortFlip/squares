@@ -4,6 +4,7 @@ import { countByLane, slotsFor, swapItem, type LaneKey } from '@/lib/game/card-b
 import { seededRng } from '@/lib/game/seed-rng';
 import { CARD_PRESETS } from '@/lib/card-styles';
 import * as api from '@/lib/library/api';
+import { computeHeat, type HeatMap } from '@/lib/library/heat';
 import {
   cardStyles,
   itemsForSave,
@@ -117,6 +118,8 @@ interface LibraryState {
   items: LibraryItem[];
   tags: Tag[];
   loaded: boolean;
+  /** Item id → marks and appearances from past rounds. Empty until loaded, or if it failed. */
+  heat: HeatMap;
   savedCards: CardTemplate[];
 
   filter: LibraryFilter;
@@ -138,6 +141,8 @@ interface LibraryState {
   // ── Library ──
   load: (ownerId: string) => Promise<boolean>;
   refreshSavedCards: () => Promise<void>;
+  /** Load item heat. Separate from load() so a failure only costs the heat, never the library. */
+  loadHeat: () => Promise<void>;
   setFilter: (filter: LibraryFilter) => void;
   setSearch: (search: string) => void;
   toggleSelected: (id: string) => void;
@@ -243,6 +248,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
     items: [],
     tags: [],
     loaded: false,
+    heat: {},
     savedCards: [],
     filter: 'all',
     search: '',
@@ -259,10 +265,26 @@ export const useLibraryStore = create<LibraryState>((set, get) => {
           api.loadSavedCards(ownerId),
         ]);
         set({ ownerId, items, tags, savedCards, loaded: true, selectedIds: [] });
+        // Not awaited: heat is a nice-to-have and must not hold the page up.
+        void get().loadHeat();
         return true;
       } catch (error) {
         toastError(error, 'Could not load your library.');
         return false;
+      }
+    },
+
+    async loadHeat() {
+      const { ownerId } = get();
+      if (!ownerId) return;
+      try {
+        const rows = await api.loadHeatRows(ownerId);
+        // Computed against the items as they stand now, so a text-only square
+        // from an old round still finds the item it became.
+        set({ heat: computeHeat(get().items, rows) });
+      } catch (error) {
+        set({ heat: {} });
+        toastError(error, 'Could not load item heat.');
       }
     },
 

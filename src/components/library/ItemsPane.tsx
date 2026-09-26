@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, Search, Tag as TagIcon, Trash2, X } from 'lucide-react';
+import { ChevronDown, Flame, Plus, Search, Tag as TagIcon, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
 import { slotsFor } from '@/lib/game/card-builder';
 import { matchesFilter, revealFor } from '@/lib/library/add-item';
 import { textKey } from '@/lib/library/card-draft';
+import { hitRate } from '@/lib/library/heat';
 import { notify } from '@/lib/library/notify';
 import { cn } from '@/lib/utils';
 import { useLibraryStore } from '@/stores/libraryStore';
@@ -39,6 +40,10 @@ export function ItemsPane() {
   const search = useLibraryStore((s) => s.search);
   const selectedIds = useLibraryStore((s) => s.selectedIds);
   const draft = useLibraryStore((s) => s.draft);
+  const heat = useLibraryStore((s) => s.heat);
+  // Local UI state: a view preference, not something the card or the DB cares about.
+  const [hottestFirst, setHottestFirst] = useState(false);
+  const hasHeat = Object.keys(heat).length > 0;
   const setFilter = useLibraryStore((s) => s.setFilter);
   const setSearch = useLibraryStore((s) => s.setSearch);
   const toggleSelected = useLibraryStore((s) => s.toggleSelected);
@@ -71,10 +76,20 @@ export function ItemsPane() {
 
   const visible = useMemo(() => {
     const needle = textKey(search);
-    return items.filter(
+    const shown = items.filter(
       (item) => matchesFilter(item, filter, gameIds) && (!needle || textKey(item.text).includes(needle)),
     );
-  }, [items, filter, search, gameIds]);
+    if (!hottestFirst || !hasHeat) return shown;
+    // Hot first; items with no history sink to the bottom (unknown is not cold).
+    // More appearances breaks a tie, since that rate is the better-founded one.
+    // Array.sort is stable, so equal items keep the library's own order.
+    return [...shown].sort((a, b) => {
+      const ra = hitRate(heat[a.id]);
+      const rb = hitRate(heat[b.id]);
+      if (ra === null || rb === null) return ra === rb ? 0 : ra === null ? 1 : -1;
+      return rb - ra || (heat[b.id]?.appearances ?? 0) - (heat[a.id]?.appearances ?? 0);
+    });
+  }, [items, filter, search, gameIds, hottestFirst, hasHeat, heat]);
 
   const onCard = useMemo(
     () => new Set(draft.set.map((s) => s.libraryItemId).filter((id): id is string => !!id)),
@@ -280,6 +295,19 @@ export function ItemsPane() {
                 )}
               </p>
               <div className="flex-1" />
+              {/* Only once there is history to sort by; before that it would do nothing. */}
+              {hasHeat && (
+                <Button
+                  variant={hottestFirst ? 'secondary' : 'outline'}
+                  className={BTN}
+                  aria-pressed={hottestFirst}
+                  onClick={() => setHottestFirst((on) => !on)}
+                  title="Sort By How Often Each Item Gets Marked"
+                >
+                  <Flame strokeWidth={1.75} />
+                  Hottest First
+                </Button>
+              )}
               <Button variant="outline" className={BTN} onClick={() => setNewGameOpen(true)}>
                 <Plus strokeWidth={1.75} />
                 New Game
@@ -317,6 +345,7 @@ export function ItemsPane() {
             <ItemRow
               key={item.id}
               item={item}
+              heat={heat[item.id]}
               game={item.gameTagId ? gameById.get(item.gameTagId) ?? null : null}
               games={games}
               extraTags={extraTags}
